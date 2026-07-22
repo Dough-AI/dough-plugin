@@ -1,8 +1,8 @@
 # Dough Datalake Guide
 
 Good practice and hard-won gotchas for working the Dough datalake. Exact tool
-input schemas are **not** duplicated here — call `tools.describe` (or
-`tools.describe` for a single tool) for the current, org-scoped schema. This
+input schemas are **not** duplicated here — call `tools.list` for the catalog (or
+`tools.describe` for a single tool's schema) for the current, org-scoped schema. This
 guide holds the behaviors and judgment the schema can't tell you.
 
 ## Good practice
