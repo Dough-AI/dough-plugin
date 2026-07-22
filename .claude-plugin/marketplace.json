@@ -1,0 +1,18 @@
+{
+  "name": "dough-plugins",
+  "owner": {
+    "name": "Dough",
+    "email": "uday@usedough.com"
+  },
+  "metadata": {
+    "description": "Dough plugins for Claude Code.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "dough",
+      "source": "./",
+      "description": "Build and run Dough datalake analyses from Claude Code: explore your data lake, write read-only SQL, enrich with dimension mappings, and materialize calculated tables."
+    }
+  ]
+}
