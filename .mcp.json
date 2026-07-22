@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dough": {
+      "type": "http",
+      "url": "https://app.usedough.ai/api/mcp"
+    }
+  }
+}
