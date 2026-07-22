@@ -17,14 +17,18 @@ connected / what can I do here?"
 
 2. **Probe whether the data lake is actually usable — do NOT stop at step 1.**
    Holding the datalake SKU makes the tools *appear*, but real data access also
-   requires a provisioned tenant. Call `integrations.sources` (a lightweight
-   read). Interpret the result:
-   - Normal result (connected sources / available providers) → the lake is
-     ready. Summarize what's connected.
-   - An error containing *"Data Lake is not set up for this organization"* →
-     the org has the SKU but no provisioned tenant. Say so directly: the tools
-     are granted but data access needs provisioning (operator-side), and stop —
-     do not retry.
+   requires a provisioned tenant with connected sources. Call `integrations.sources`
+   (a lightweight read) and read its **`status`** field — it reports readiness in a
+   normal payload, it does not throw:
+   - `status: "not_provisioned"` → the org has the SKU but no provisioned tenant.
+     Say so directly: tools are granted but data access needs provisioning
+     (operator-side). Stop — do not retry.
+   - `status: "ready"` with `needsSetup: true` (or an empty `connected` list) →
+     provisioned, but no integrations are connected yet. The lake exists but has
+     nothing to query until a source is connected. Say that.
+   - `status: "ready"` with `needsSetup: false` and one or more `connected`
+     sources → fully ready. Summarize what's connected.
+   - `status: "error"` → report the `errorMessage`.
 
 3. **Orient to the data.** If ready, call `integrations.tables` to show what
    datasets/tables exist, and mention that saved queries (`queries.list`) show

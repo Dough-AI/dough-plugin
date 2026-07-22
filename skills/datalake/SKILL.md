@@ -13,7 +13,8 @@ named write operations only once a result is proven. For exact tool inputs call
 ## 1. Explore what's there
 - `integrations.sources` — connected source systems and freshness.
 - `integrations.tables` — lake tables grouped by dataset. Note: a raw table is
-  shadowed by its `<dataset>_mapped` counterpart once a mapping exists.
+  shadowed by its `<dataset>_mapped` counterpart once that mapping is applied and
+  its rebuild has succeeded (not on a draft save).
 - `integrations.describe` — a table's columns. `integrations.preview` — a small
   sample of rows.
 
@@ -47,8 +48,3 @@ region`):
 - **Save the SQL:** `queries.save` stores the SQL (create with `name`+`sql`, or
   update by `id`) so the org can re-run it. It validates read-only and does not
   execute.
-
-## Reminders
-- Verify before you promote — prove it with `integrations.query` first.
-- Writes cross the same gated, audited door as the web UI; the server enforces,
-  this skill only sequences.

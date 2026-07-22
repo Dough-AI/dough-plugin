@@ -13,11 +13,16 @@ Report the caller's Dough status in three parts. Be concise.
    org's SKUs.
 
 3. **Data-lake readiness (do not skip).** Having the tools does not mean data is
-   reachable. Call `integrations.sources`:
-   - Normal result → report the lake as **ready** and summarize connected sources.
-   - Error containing *"Data Lake is not set up for this organization"* → report
-     **not provisioned**: the org has the SKU but data access needs provisioning
+   reachable. Call `integrations.sources` and read its **`status`** field (a normal
+   payload, not an error):
+   - `status: "ready"`, `needsSetup: false`, with `connected` sources → **ready**;
+     summarize the connected sources.
+   - `status: "ready"`, `needsSetup: true` (or empty `connected`) → **provisioned
+     but no sources connected yet** — nothing to query until an integration is
+     connected.
+   - `status: "not_provisioned"` → **not provisioned**: SKU present, no tenant
      (operator-side). Do not retry.
+   - `status: "error"` → report the `errorMessage`.
 
 End with a one-line verdict: connected + entitled + ready, or exactly which of
 those is missing.

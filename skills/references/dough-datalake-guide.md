@@ -38,32 +38,27 @@ guide holds the behaviors and judgment the schema can't tell you.
   the org library so people can re-run it in the app.
 
 ### "Not set up" is a state, not an error
-- If a read returns *"Data Lake is not set up for this organization,"* the org
-  holds the datalake SKU but has no provisioned tenant yet. That is a
-  provisioning step (operator-side), not something to retry or work around.
+- Reads like `integrations.sources` report readiness in a **normal payload**, not by
+  throwing. `status: "not_provisioned"` means the org holds the datalake SKU but has
+  no provisioned tenant yet — a provisioning step (operator-side), not something to
+  retry. `status: "ready"` with `needsSetup: true` means the tenant exists but no
+  integration is connected yet. Neither is an error to work around.
 
-## Gotchas (learned the hard way)
+## Gotchas (the ones that bite)
 
-1. **`mappings.save` treats the CSV as complete state.** The CSV you save *is*
-   the mapping: a blank cell means unmapped, and removing a row **deletes** that
-   assignment. Always `dryRun:true` first to see the diff before applying.
-2. **A mapping's identity `(dataset, table, dimension)` is immutable.** To
-   "rename" a dimension you delete and recreate.
-3. **Dimensions cap at 1000 distinct values.** `mappings.dimension.values`
-   tells you whether a column is `mappable`; above 1000 it isn't.
-4. **`applied` mappings and `tables.create` are asynchronous.** `mappings.save`
-   with `status:"applied"` schedules a BigQuery rebuild; `tables.create` returns
-   a `jobId` immediately. Poll `mappings.status` (pass the **source** table) or
-   `tables.status` — the data isn't there the instant the call returns.
-5. **`integrations.query` caps.** `limit` defaults to 500, max 5000;
-   `timeoutMs` defaults to 5000ms, max 15000ms; a 20 GiB max-bytes-billed
-   ceiling fails runaway scans instead of billing them. Params are `@name`
-   placeholders, scalars only.
-6. **Calculated tables take a bare name, no `dataset.`** They always land in
-   `dough_calculated`, cap at 100 GB billed / 30-min, and have no update/delete —
-   recreate to change one.
-7. **Mapped tables shadow their raw source.** In `integrations.tables`, once
-   `<dataset>_mapped.<table>` exists it stands in for the raw table; query the
-   mapped one to get the derived columns.
-8. **`queries.save` never executes.** It validates the SQL is read-only and
-   stores it; running it is a separate `integrations.query` / app action.
+The exact caps and inputs live in each tool's own description — call `tools.describe`
+for those. These are the behaviors that surprise people:
+
+1. **`mappings.save` treats the CSV as complete state, and it's destructive.** The
+   CSV you save *is* the mapping: a blank cell unmaps, and removing a row **deletes**
+   that assignment. Always `dryRun:true` first to see the diff before applying.
+2. **A mapping's identity `(dataset, table, dimension)` is immutable, and there is
+   no delete tool.** Deleting a mapping is a deliberate action in the Dough app —
+   you can't do it from here. So you can't "rename" a dimension via the tools; edit
+   its values with `mappings.save`, or remove the mapping in the app.
+3. **Applied mappings and `tables.create` are asynchronous.** `mappings.save` with
+   `status:"applied"` schedules a rebuild; `tables.create` returns a `jobId`
+   immediately. Poll `mappings.status` (pass the **source** table) or `tables.status`
+   — the data isn't there the instant the call returns. A `<dataset>_mapped` table
+   only shadows its raw source in `integrations.tables` once that rebuild has
+   **succeeded**, not on a draft save.
