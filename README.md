@@ -5,8 +5,8 @@ Datalake analysis with Dough, from your own Claude Code session.
 ## Install
 
 ```
-/plugin marketplace add <this-repo>
-/plugin install dough
+/plugin marketplace add Dough-AI/dough-plugin
+/plugin install dough@dough-plugins
 ```
 
 On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
