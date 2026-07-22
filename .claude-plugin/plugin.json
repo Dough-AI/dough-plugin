@@ -1,7 +1,9 @@
 {
   "name": "dough",
+  "displayName": "Dough",
   "version": "0.1.0",
   "description": "Build and run Dough datalake analyses from Claude Code: explore your data lake, write read-only SQL, enrich with dimension mappings, and materialize calculated tables.",
   "author": { "name": "Dough", "email": "uday@usedough.com" },
-  "homepage": "https://usedough.com"
+  "homepage": "https://usedough.com",
+  "keywords": ["dough", "datalake", "data-analysis", "sql", "bigquery", "finance"]
 }
