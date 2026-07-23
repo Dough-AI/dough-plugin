@@ -26,6 +26,17 @@ Reusing calculated tables and saved queries keeps your answer consistent with ho
 the org actually computes things, instead of re-deriving it (and getting it subtly
 wrong).
 
+## When the source is ambiguous, ask — don't guess
+If more than one table, saved query, calculated table, column, or mapping could
+plausibly answer the question and the choice would change the numbers, ask a short
+clarifying question instead of picking one — and name the specific options you
+found so the user can choose. Examples:
+- Several P&L tables (which entity, period, or basis?).
+- Several amount or mapping columns you could aggregate in a P&L table (which
+  measure — gross vs net? which mapping — audit vs board?).
+A confident single match needs no question; a coin-flip between options that would
+give different answers always does.
+
 ## 1. Explore the tables
 - `integrations.sources` — connected source systems and freshness.
 - `integrations.tables` — tables grouped by dataset, including the
