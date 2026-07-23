@@ -37,6 +37,13 @@ found so the user can choose. Examples:
 A confident single match needs no question; a coin-flip between options that would
 give different answers always does.
 
+## Show results as a table first — don't auto-build an HTML artifact
+Default to presenting analysis as a plain Markdown table (or a short text summary).
+Do **not** create an HTML page or artifact for results unless the user asks for
+one. If a result might genuinely warrant a chart, dashboard, or downloadable
+report, offer it and ask first ("want this as an HTML report?") rather than
+kicking off that flow automatically.
+
 ## 1. Explore the tables
 - `integrations.sources` — connected source systems and freshness.
 - `integrations.tables` — tables grouped by dataset, including the
