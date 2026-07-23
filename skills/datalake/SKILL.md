@@ -47,6 +47,20 @@ one. If a result might genuinely warrant a chart, dashboard, or downloadable
 report, offer it and ask first ("want this as an HTML report?") rather than
 kicking off that flow automatically.
 
+### Verify the data, not just the query
+Confirm a field means what you think before you build on it — a wrong assumption
+here silently corrupts every number downstream. Cheap checks that pay off:
+- **Meaning:** is an amount signed or an unsigned magnitude? Count negatives, count
+  nulls, compare candidate columns for mismatches, and confirm a formula holds on
+  all rows before trusting it.
+- **Dates:** group periods by the economic / posting date, not system timestamps
+  like `created_at` / `last_modified_at` (those are sync metadata). When several
+  date fields exist, verify which is the real economic date.
+- **Column choice:** when two columns could be the same measure, prefer the one
+  that's correctly signed **and** most complete (best null coverage); verify
+  magnitude-equivalence, and when swapping, add the new column alongside → verify →
+  then remove the old (never blind-swap).
+
 ## 1. Explore the tables
 - `integrations.sources` — connected source systems and freshness.
 - `integrations.tables` — tables grouped by dataset, including the
