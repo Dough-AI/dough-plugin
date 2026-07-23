@@ -10,7 +10,10 @@ named write operations only once a result is proven. For exact tool inputs call
 `tools.describe`; for behaviors and gotchas read
 `../references/dough-datalake-guide.md`.
 
-## When a question comes in, reuse the org's existing work first
+## Working rules
+Apply these throughout — before and during the mechanics below.
+
+### Reuse the org's existing work first
 Before writing SQL against raw tables, look for an answer the org has already
 built — in this order:
 1. **Calculated tables** — the `dough_calculated.*` entries in `integrations.tables`.
@@ -26,7 +29,7 @@ Reusing calculated tables and saved queries keeps your answer consistent with ho
 the org actually computes things, instead of re-deriving it (and getting it subtly
 wrong).
 
-## When the source is ambiguous, ask — don't guess
+### When the source is ambiguous, ask — don't guess
 If more than one table, saved query, calculated table, column, or mapping could
 plausibly answer the question and the choice would change the numbers, ask a short
 clarifying question instead of picking one — and name the specific options you
@@ -37,7 +40,7 @@ found so the user can choose. Examples:
 A confident single match needs no question; a coin-flip between options that would
 give different answers always does.
 
-## Show results as a table first — don't auto-build an HTML artifact
+### Show results as a table first
 Default to presenting analysis as a plain Markdown table (or a short text summary).
 Do **not** create an HTML page or artifact for results unless the user asks for
 one. If a result might genuinely warrant a chart, dashboard, or downloadable
