@@ -1,6 +1,6 @@
 ---
 name: datalake
-description: Use when analyzing data in the Dough data lake — exploring tables, writing read-only SQL (your own or the org's saved queries), enriching data with dimension mappings, or materializing a result into a calculated table.
+description: Use when analyzing data in the Dough data lake or answering a question about the org's numbers — revenue, margins, metrics, KPIs, "how much did we make", any figure that comes from the data. Covers reusing the org's calculated tables and saved queries first, exploring tables, writing read-only SQL, enriching data with dimension mappings, and materializing a result into a calculated table.
 ---
 
 # Working the Dough data lake

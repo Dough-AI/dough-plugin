@@ -1,13 +1,16 @@
 ---
 name: pnl
-description: Use when presenting a P&L / income statement / profit-and-loss — enforces line-item order, sign conventions, subtotals, margins, and comparative columns for a consistent statement.
+description: Use when presenting a P&L / income statement / profit-and-loss / earnings / "the financials" — anything with revenue down to net income, gross/operating/net margin, or an actual-vs-budget comparison. Enforces line-item order, sign conventions, subtotals, margins, and comparative columns for a consistent statement.
 ---
 
 # Presenting a P&L
 
-Consistent income-statement presentation. A P&L is datalake work — the `datalake`
-skill's Working rules (reuse-first, ask-when-ambiguous, tables-first) apply here
-too. This skill adds the P&L-specific conventions on top.
+Consistent income-statement presentation. A P&L is datalake work. **Invoke the `datalake` skill first** and follow its
+Working rules (reuse-first, ask-when-ambiguous, tables-first, verify-the-data) to
+source the numbers — don't re-derive them here. Reuse-first matters most for a
+P&L: an income statement is exactly the kind of thing an org has already built as
+a calculated table or a saved query, so look there before writing SQL against raw
+tables. This skill adds the P&L-specific presentation conventions on top.
 
 ## Compute it right before you present it
 A P&L is only as good as its inputs — get these right before formatting anything.
