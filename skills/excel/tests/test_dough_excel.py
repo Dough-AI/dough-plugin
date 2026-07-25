@@ -46,7 +46,8 @@ def test_create_into_empty(tmp_path):
     assert wb["Dough"]["A2"].value == "dough-manifest v1"
     assert wb["Dough"]["A4"].value == "Revenue Detail"
     assert wb["Dough"]["B4"].value == "q-1"
-    assert "2 rows" in wb["Dough"]["E4"].value
+    assert wb["Dough"]["E4"].value == "2026-07-25T14:03:00Z"
+    assert wb["Dough"]["F4"].value == 2  # row_count is its own numeric column
     ws = wb["Revenue Detail"]
     assert "Managed by Dough" in ws["A1"].value
     assert ws["A2"].value == "month"
@@ -84,7 +85,8 @@ def test_refresh_shrunk_rows_and_mangled_banner_restored(tmp_path):
     assert "2026-08-01" in ws["A1"].value        # with the new date
     assert ws["A3"].value == "2026-03"
     assert ws["A4"].value is None                # old rows gone
-    assert "1 rows" in wb["Dough"]["E4"].value   # manifest stamp updated in place
+    assert wb["Dough"]["E4"].value == "2026-08-01T09:00:00Z"  # timestamp updated in place
+    assert wb["Dough"]["F4"].value == 1                       # row_count updated in place
 
 
 def test_refresh_unknown_sheet_is_drift(tmp_path):
@@ -116,6 +118,7 @@ def test_list_outputs_manifest_json(tmp_path):
     assert parsed["version"] == "dough-manifest v1"
     assert parsed["entries"][0]["query_id"] == "q-1"
     assert parsed["entries"][0]["sheet"] == "Revenue Detail"
+    assert parsed["entries"][0]["row_count"] == "2"
 
 
 def test_non_managed_workbook_fails_cleanly(tmp_path):

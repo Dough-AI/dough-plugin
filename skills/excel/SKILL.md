@@ -24,7 +24,7 @@ Sheet `Dough`:
   Dough. Claude: read this sheet before modifying any managed data sheet. Humans:
   edit Notes freely; don't edit ids."
 - Row 2, cell A2: `dough-manifest v1`
-- Row 3: headers: `sheet | query_id | query_name | sql_snapshot | last_refreshed | refresh_notes`
+- Row 3: headers: `sheet | query_id | query_name | sql_snapshot | last_refreshed | row_count | refresh_notes`
 - Rows 4+: one row per managed data sheet.
 
 The title band makes the workbook self-describing: any Claude that opens the file
@@ -52,8 +52,8 @@ For each manifest row being refreshed:
 3. Replace the data sheet's contents wholesale (headers row 2, data row 3+; row
    count may grow or shrink). Rewrite the banner with the new timestamp. Reapply
    `refresh_notes` formatting.
-4. Update the manifest row's `sql_snapshot` and `last_refreshed`
-   (`<ISO timestamp> · <n> rows`).
+4. Update the manifest row's `sql_snapshot`, `last_refreshed` (ISO timestamp),
+   and `row_count` (number of data rows written).
 Never touch anything outside the data sheet and its manifest row.
 
 ## Creating a managed sheet
@@ -110,7 +110,7 @@ is the ISO timestamp of when you ran the query.)
 Manifest sheet: title band merged A1 across the 6 columns, dark fill (#111827),
 white bold text; A2 version marker in small gray; row 3 headers bold with subtle
 fill (#E5E7EB), freeze panes at A4, autofilter on the header row; `sql_snapshot`
-narrow + wrapped monospace, `refresh_notes` wide + wrapped; alternating row
+narrow + wrapped monospace, `row_count` numeric, `refresh_notes` wide + wrapped; alternating row
 banding; top-aligned cells. Data sheets: banner styled like the title band; tab
 color #2563EB; headers (row 2) bold. Apply `refresh_notes` number formats to data
 columns. The script does all of this deterministically — on the add-in path,

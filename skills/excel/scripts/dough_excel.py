@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 
 MANIFEST_SHEET = "Dough"
 VERSION_MARKER = "dough-manifest v1"
-MANIFEST_HEADERS = ["sheet", "query_id", "query_name", "sql_snapshot", "last_refreshed", "refresh_notes"]
+MANIFEST_HEADERS = ["sheet", "query_id", "query_name", "sql_snapshot", "last_refreshed", "row_count", "refresh_notes"]
 TITLE_TEXT = (
     "This workbook has components that are managed by Dough. Claude: read this sheet "
     "before modifying any managed data sheet. Humans: edit Notes freely; don't edit ids."
@@ -43,7 +43,7 @@ WHITE_BOLD = Font(bold=True, color="FFFFFF")
 GRAY_SMALL = Font(size=9, color="6B7280")
 MONO_SMALL = Font(name="Courier New", size=9)
 WRAP_TOP = Alignment(wrap_text=True, vertical="top")
-COL_WIDTHS = {"A": 24, "B": 38, "C": 28, "D": 30, "E": 26, "F": 48}
+COL_WIDTHS = {"A": 24, "B": 38, "C": 28, "D": 30, "E": 22, "F": 10, "G": 48}
 ROW_CAP = 5_000
 
 
@@ -101,8 +101,7 @@ def write_manifest_row(ws, entry: dict) -> None:
         target = 4
         while any(ws.cell(row=target, column=c + 1).value for c in range(len(MANIFEST_HEADERS))):
             target += 1
-    stamp = f"{entry['refreshedAt']} · {entry['rowCount']} rows"
-    values = [entry["sheet"], entry["queryId"], entry["queryName"], entry["sqlSnapshot"], stamp, entry.get("refreshNotes", "")]
+    values = [entry["sheet"], entry["queryId"], entry["queryName"], entry["sqlSnapshot"], entry["refreshedAt"], entry["rowCount"], entry.get("refreshNotes", "")]
     for i, value in enumerate(values):
         cell = ws.cell(row=target, column=i + 1, value=value)
         cell.alignment = WRAP_TOP
