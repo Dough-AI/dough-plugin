@@ -15,7 +15,10 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
 ## What's inside
 
 - **MCP connector** to the Dough datalake tools (`integrations`, `queries`, `mappings`, `tables`).
-- **Skills:** `getting-started` and `datalake`.
+- **Skills:** `getting-started`, `datalake`, and `excel` (Dough-managed Excel
+  workbooks: a visible `Dough` manifest sheet maps data sheets to saved queries,
+  so Claude can refresh them without re-deriving anything — includes a bundled
+  openpyxl script for deterministic workbook writes).
 - **Command:** `/dough:status`.
 
 ## Updating
