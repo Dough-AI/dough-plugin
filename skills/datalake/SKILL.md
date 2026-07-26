@@ -29,6 +29,25 @@ Reusing calculated tables and saved queries keeps your answer consistent with ho
 the org actually computes things, instead of re-deriving it (and getting it subtly
 wrong).
 
+### The org's own words for a table beat your reading of its schema
+Tables carry two things the org wrote itself, and both come back from the same
+tools you already call:
+- **Aliases** (`aliases` in `integrations.tables`) — the names the team actually
+  uses. When someone says "deals" or "the billings table", look for a matching
+  alias and use **that** table; don't guess from table names. An alias is unique
+  per org and is never a real table's name, so a match is unambiguous. An alias
+  is a label, never SQL — query the real `dataset.table`.
+- **Notes** (`notes` in `integrations.describe`; flagged by `hasNotes` in
+  `integrations.tables`) — what the schema can't say: rows that must be excluded,
+  a column whose name lies about its contents, units, who owns the system.
+  **Read the notes before writing SQL against a table**, and treat them as
+  authoritative — they come from the people who own the data, and ignoring one
+  produces a confidently wrong number. Say so when a note changes the answer.
+
+When the user tells you something durable about a table that isn't recorded yet,
+offer to save it with `tables.annotate` (see step 4) so the next person — and the
+next session — gets it for free.
+
 ### When the source is ambiguous, ask — don't guess
 If more than one table, saved query, calculated table, column, or mapping could
 plausibly answer the question and the choice would change the numbers, ask a short
@@ -67,8 +86,10 @@ here silently corrupts every number downstream. Cheap checks that pay off:
   `dough_calculated` calculated tables. A raw table is shadowed by its
   `<dataset>_mapped` counterpart once that mapping is applied and its rebuild has
   succeeded (not on a draft save) — prefer the `_mapped` one.
-- `integrations.describe` — a table's columns. `integrations.preview` — a small
-  sample of rows.
+  This listing is also the org's **alias directory** (`aliases` per table) and
+  flags which tables have notes (`hasNotes`).
+- `integrations.describe` — a table's columns, **plus its aliases and the full
+  team notes**. `integrations.preview` — a small sample of rows.
 
 ## 2. Analyze with your own SQL
 When no calculated table or saved query fits, `integrations.query` runs read-only
@@ -98,5 +119,12 @@ Choose by how people will use it:
   `tables.status`. No update/delete — recreate to change it.
 - **A query to re-run → `queries.save`.** Store the SQL (create with `name`+`sql`,
   or update by `id`); validates read-only and does not execute.
+- **Knowledge about a table → `tables.annotate`.** Record the names the team calls
+  it (`aliases`) and what it can't infer from the schema (`notes`). Org-wide and
+  durable, so it's there for the next person and the next session. Aliases are
+  table-name-shaped (letters, numbers, underscores) and must be free — one
+  already in use, or matching a real table's name, is rejected. An omitted field
+  is left unchanged; a provided one replaces the stored value. Record what you
+  were **told**, not what you inferred — ask before writing a guess.
 - These become the calculated tables and saved queries that the **reuse-first**
   step at the top should find next time — so name them clearly.
