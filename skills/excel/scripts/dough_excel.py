@@ -26,7 +26,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 MANIFEST_SHEET = "Dough"
-VERSION_MARKER = "dough-manifest v1"
+MANIFEST_VERSION = 1
+VERSION_MARKER = f"dough-manifest v{MANIFEST_VERSION}"
 MANIFEST_HEADERS = ["sheet", "query_id", "query_name", "sql_snapshot", "last_refreshed", "row_count", "refresh_notes"]
 TITLE_TEXT = (
     "This workbook has components that are managed by Dough. Claude: read this sheet "
@@ -58,11 +59,17 @@ def read_manifest(wb):
     if MANIFEST_SHEET not in wb.sheetnames:
         fail(3, f"no '{MANIFEST_SHEET}' sheet — not a Dough-managed workbook")
     ws = wb[MANIFEST_SHEET]
-    marker = str(ws["A2"].value or "")
+    marker = str(ws["A2"].value or "").strip()
     if not marker.startswith("dough-manifest"):
         fail(3, f"'{MANIFEST_SHEET}'!A2 is not a dough-manifest marker: {marker!r}")
-    if marker.strip() != VERSION_MARKER:
-        fail(3, f"manifest version {marker.strip()!r} is newer than this script ({VERSION_MARKER}); update the Dough plugin")
+    match = re.fullmatch(r"dough-manifest v(\d+)", marker)
+    if not match:
+        fail(3, f"unrecognized manifest marker {marker!r}; expected {VERSION_MARKER!r}")
+    version = int(match.group(1))
+    if version > MANIFEST_VERSION:
+        fail(3, f"manifest version v{version} is newer than this script ({VERSION_MARKER}); update the Dough plugin")
+    if version < MANIFEST_VERSION:
+        fail(3, f"manifest version v{version} predates this script ({VERSION_MARKER}); re-create the workbook or migrate it to {VERSION_MARKER}")
     headers = [str(ws.cell(row=3, column=i + 1).value or "") for i in range(len(MANIFEST_HEADERS))]
     if headers != MANIFEST_HEADERS:
         fail(3, f"manifest headers drifted: {headers}")
@@ -148,8 +155,13 @@ def write_data_sheet(wb, entry: dict) -> str:
     if len(rows) > ROW_CAP:
         fail(2, f"{entry['sheet']}: {len(rows)} rows exceeds the {ROW_CAP} cap — use a lower grain")
     if entry["sheet"] in wb.sheetnames:
-        del wb[entry["sheet"]]  # wholesale replace, per contract
-    ws = wb.create_sheet(entry["sheet"])
+        # Wholesale replace, per contract — but re-insert at the same tab
+        # position so refresh never reorders the workbook.
+        index = wb.sheetnames.index(entry["sheet"])
+        del wb[entry["sheet"]]
+        ws = wb.create_sheet(entry["sheet"], index)
+    else:
+        ws = wb.create_sheet(entry["sheet"])
     ws.sheet_properties.tabColor = TAB_COLOR
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(1, len(headers)))
     banner = ws.cell(row=1, column=1, value=BANNER_TEMPLATE.format(date=entry["refreshedAt"][:10]))

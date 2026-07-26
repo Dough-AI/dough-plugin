@@ -109,6 +109,30 @@ def test_newer_manifest_version_stops(tmp_path):
     assert "update the Dough plugin" in result.stderr
 
 
+def test_older_manifest_version_says_migrate_not_update(tmp_path):
+    book = tmp_path / "book.xlsx"
+    run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    wb = load_workbook(book)
+    wb["Dough"]["A2"] = "dough-manifest v0"
+    wb.save(book)
+    result = run("list", str(book))
+    assert result.returncode == 3
+    assert "predates" in result.stderr
+    assert "update the Dough plugin" not in result.stderr
+
+
+def test_refresh_preserves_tab_order(tmp_path):
+    book = tmp_path / "book.xlsx"
+    run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    wb = load_workbook(book)
+    wb.create_sheet("ZZ_UserModel")
+    wb.save(book)
+    before = load_workbook(book).sheetnames
+    result = run("refresh", str(book), "--all", "--payload", payload(tmp_path, [entry(tmp_path)]))
+    assert result.returncode == 0, result.stderr
+    assert load_workbook(book).sheetnames == before
+
+
 def test_list_outputs_manifest_json(tmp_path):
     book = tmp_path / "book.xlsx"
     run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
