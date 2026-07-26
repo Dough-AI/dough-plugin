@@ -12,8 +12,9 @@ guide holds the behaviors and judgment the schema can't tell you.
   `WITH … SELECT`. It is wrapped as `SELECT * FROM (<your sql>) AS _q LIMIT n`.
   There is no `INSERT`/`UPDATE`/`DELETE`/DDL path — and that's deliberate.
 - The only ways to create durable data are the named write operations:
-  `mappings.save` (enrich a table) and `tables.create` (materialize a SELECT).
-  Both cross the same gated, audited door the web UI uses.
+  `mappings.save` (enrich a table), `tables.create` (materialize a SELECT), and
+  `tables.annotate` (record what the team knows about a table). All cross the
+  same gated, audited door the web UI uses.
 
 ### Read the org's conventions before writing new SQL
 - Call `queries.list` / `queries.get` first. Saved queries are how the org
@@ -27,6 +28,28 @@ guide holds the behaviors and judgment the schema can't tell you.
   materializing it with `tables.create` or saving it with `queries.save`. A
   calculated table is a background job over the full dataset; don't spend that
   until the SELECT is right.
+
+### Aliases name a table; they don't address it
+- An alias is what the team **calls** a table ("deals" → `salesforce_mapped.opportunity`).
+  It exists so you can resolve a human name to the right table and so people can
+  find it in the app. It is **not** a queryable identifier: SQL always uses the
+  real `dataset.table`, and there is no rewriting behind your back.
+- An alias is unique per org **and** can never be the name of a real table — both
+  are enforced when it's saved. So an alias match is unambiguous by construction:
+  there is no precedence rule to apply, because the collision can't exist.
+- Aliases are shaped like table names (letters, numbers, underscores; no spaces
+  or dots), so `deals` and `open_pipeline` are valid, `open pipeline` is not.
+
+### Notes are the org's word, and they outrank your inference
+- `integrations.describe` returns a table's `notes` whole. They exist precisely to
+  say the things a schema can't: which rows are junk, what a column really holds,
+  which of two similar tables is authoritative. Follow them.
+- `integrations.tables` deliberately does **not** inline notes — it returns
+  `hasNotes` instead. A truncated caveat ("exclude rows where…") is worse than no
+  caveat, so the full text only ever comes from `describe`. Call it before you
+  query a table flagged `hasNotes`.
+- Column-level knowledge lives in the table's notes too; there is no per-column
+  field. Read the whole note, not a keyword match within it.
 
 ### When to use which write
 - **Mapping** (`mappings.save`): you want to add derived columns by mapping the
@@ -56,7 +79,13 @@ for those. These are the behaviors that surprise people:
    no delete tool.** Deleting a mapping is a deliberate action in the Dough app —
    you can't do it from here. So you can't "rename" a dimension via the tools; edit
    its values with `mappings.save`, or remove the mapping in the app.
-3. **Applied mappings and `tables.create` are asynchronous.** `mappings.save` with
+3. **`tables.annotate` replaces a field, it doesn't append to it.** Omit a field to
+   leave it alone; pass `aliases` and you overwrite the whole list (read the
+   current values with `integrations.describe` first if you mean to add one).
+   `aliases: []` / `notes: null` clear. An alias that another table already uses,
+   or that is the name of a real table, is **rejected** — not merged, not
+   silently dropped. Reading the whole result back tells you what stuck.
+4. **Applied mappings and `tables.create` are asynchronous.** `mappings.save` with
    `status:"applied"` schedules a rebuild; `tables.create` returns a `jobId`
    immediately. Poll `mappings.status` (pass the **source** table) or `tables.status`
    — the data isn't there the instant the call returns. A `<dataset>_mapped` table
