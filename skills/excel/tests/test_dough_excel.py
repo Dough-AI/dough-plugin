@@ -138,6 +138,32 @@ def test_row_cap_enforced(tmp_path):
     assert "5000 cap" in result.stderr
 
 
+def test_identifiers_not_corrupted_by_coercion(tmp_path):
+    # Zero-padded GL codes, phone-like strings, exponents, underscores, and
+    # >15-digit ids must survive as strings; real decimals become numbers.
+    rows = (
+        "code,amount\n"
+        "0100,15000\n"
+        "02134,-42.5\n"
+        "+16175551234,0\n"
+        "1e5,0.5\n"
+        "1_0,999999999999999\n"
+        "00012345678901234567890,7\n"
+    )
+    e = entry(tmp_path, rows=rows)
+    e["rowCount"] = 6
+    book = tmp_path / "book.xlsx"
+    result = run("create", str(book), "--payload", payload(tmp_path, [e]))
+    assert result.returncode == 0, result.stderr
+    ws = load_workbook(book)["Revenue Detail"]
+    codes = [ws.cell(row=r, column=1).value for r in range(3, 9)]
+    assert codes == ["0100", "02134", "+16175551234", "1e5", "1_0", "00012345678901234567890"]
+    assert all(isinstance(c, str) for c in codes)
+    amounts = [ws.cell(row=r, column=2).value for r in range(3, 9)]
+    assert amounts == [15000, -42.5, 0, 0.5, 999999999999999, 7]
+    assert isinstance(amounts[0], int) and isinstance(amounts[1], float)
+
+
 def test_missing_payload_fields_rejected(tmp_path):
     book = tmp_path / "book.xlsx"
     bad = entry(tmp_path)

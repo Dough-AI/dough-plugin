@@ -17,6 +17,7 @@ Exit codes: 0 success · 2 usage/validation error · 3 manifest drift or version
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -122,17 +123,24 @@ def read_csv_file(path: str, sheet: str):
     return parsed[0], parsed[1:]
 
 
+# Strict decimal only. int()/float() accept far more than a spreadsheet should
+# ("0100"→100, "1_0"→10, "+1"→1, "1e5"→100000.0), and zero-padded GL/cost-center
+# codes are the canonical finance identifier — coercing them is silent data
+# corruption in the column a user's SUMIFS keys off. So: no leading zeros
+# (except a lone 0 integer part), no sign prefix "+", no exponent, no
+# underscores, and at most 15 integer digits (Excel's own precision limit).
+# Anything that doesn't match stays a string — a string that looks like a
+# number is recoverable; a number that used to be an identifier is not.
+NUMERIC_PATTERN = re.compile(r"-?(0|[1-9]\d{0,14})(\.\d+)?")
+
+
 def coerce(value: str):
-    """CSV gives strings; store numbers as numbers so formulas work."""
+    """CSV gives strings; store unambiguous decimals as numbers so formulas work."""
     if value == "":
         return None
-    try:
-        return int(value)
-    except ValueError:
-        try:
-            return float(value)
-        except ValueError:
-            return value
+    if not NUMERIC_PATTERN.fullmatch(value):
+        return value
+    return float(value) if "." in value else int(value)
 
 
 def write_data_sheet(wb, entry: dict) -> str:
