@@ -5,7 +5,7 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-SCRIPT = Path(__file__).parent.parent / "scripts" / "dough_excel.py"
+SCRIPT = Path(__file__).parent.parent / "skills" / "excel" / "scripts" / "dough_excel.py"
 
 
 def run(*argv):
