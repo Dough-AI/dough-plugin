@@ -20,9 +20,10 @@ plugin; do not guess at the format.
 ## Manifest contract (v1)
 
 Sheet `Dough`:
-- Row 1 (merged title band): "This workbook has components that are managed by
-  Dough. Claude: read this sheet before modifying any managed data sheet. Humans:
-  edit Notes freely; don't edit ids."
+- Row 1 (title band — text in A1 only, overflowing across a filled band; no
+  merged cells): "This workbook has components that are managed by Dough. Claude:
+  read this sheet before modifying any managed data sheet. Humans: edit Notes
+  freely; don't edit ids."
 - Row 2, cell A2: `dough-manifest v1`
 - Row 3: headers: `sheet | query_id | query_name | sql_snapshot | last_refreshed | row_count | refresh_notes`
 - Rows 4+: one row per managed data sheet.
@@ -35,9 +36,10 @@ sign conventions — everything needed to regenerate the sheet faithfully. Read 
 before writing data; honor it when formatting.
 
 Each managed DATA sheet:
-- Row 1: merged banner: `⚡ Managed by Dough · refreshed <date> · this sheet is
-  replaced wholesale on refresh — build formulas on other sheets; details on the
-  'Dough' sheet.` Colored sheet tab.
+- Row 1: banner in A1 only, overflowing across a filled band (no merged cells):
+  `⚡ Managed by Dough · refreshed <date> · this sheet is replaced wholesale on
+  refresh — build formulas on other sheets; details on the 'Dough' sheet.`
+  Colored sheet tab.
 - Row 2: column headers. Row 3+: data. Nothing else, ever.
 
 ## Refresh contract
@@ -107,8 +109,8 @@ is the ISO timestamp of when you ran the query.)
 
 ## Formatting spec
 
-Manifest sheet: title band merged A1 across the 6 columns, dark fill (#111827),
-white bold text; A2 version marker in small gray; row 3 headers bold with subtle
+Manifest sheet: title band is text in A1 with dark fill (#111827) applied
+cell-by-cell across A1:G1, white bold text; A2 version marker in small gray; row 3 headers bold with subtle
 fill (#E5E7EB), freeze panes at A4, autofilter on the header row; `sql_snapshot`
 narrow + wrapped monospace, `row_count` numeric, `refresh_notes` wide + wrapped; alternating row
 banding; top-aligned cells. Data sheets: banner styled like the title band; tab
@@ -127,3 +129,6 @@ approximate it with the add-in's formatting tools.
   contract. The banner states this — always rewrite it (self-healing).
 - If a refresh would exceed 5000 rows, warn before writing and suggest a lower
   grain (or SQL-side aggregation for that sheet).
+- Everything Dough writes is merge-free: banners and title bands are a single
+  cell overflowing across a filled band. On the add-in path, reproduce that
+  shape — never merge cells.
