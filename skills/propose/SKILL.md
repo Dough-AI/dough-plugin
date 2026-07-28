@@ -73,6 +73,12 @@ nothing has been written yet.
    only that person can act, and only they see it in their queue. Omitting it
    leaves the proposal open to anyone holding the capacity, which is usually what
    you want — name someone only when the user asks for a specific person.
+
+   The fields take a **Dough user id**, and nothing Dough exposes will give you
+   one. If someone says "send it to Priya" and you do not have her id, **say so
+   and ask** — do not guess an id, and do not guess an email either. Guessing
+   wrong is not harmless: an id that belongs to a real person binds the proposal
+   to them, and only they will see it. Leaving the assignment off is always safe.
 5. **Attach the transcript** when the reasoning matters. It becomes the evidence
    behind the summary, for an approver who wants more than one line.
 6. **Call it, then relay** the reference (`PROP-…`), what it is waiting on, and
