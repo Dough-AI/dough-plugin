@@ -13,8 +13,9 @@ guide holds the behaviors and judgment the schema can't tell you.
   There is no `INSERT`/`UPDATE`/`DELETE`/DDL path — and that's deliberate.
 - The only ways to create durable data are the named write operations:
   `mappings.save` (enrich a table), `tables.create` (materialize a SELECT),
-  `tables.upload` (load a CSV as a table), and `tables.annotate` (record what the
-  team knows about a table). All cross the same gated, audited door the web UI uses.
+  `tables.update` (replace an existing calculated table's SELECT), `tables.upload`
+  (load a CSV as a table), and `tables.annotate` (record what the team knows about
+  a table). All cross the same gated, audited door the web UI uses.
 
 ### Read the org's conventions before writing new SQL
 - Call `queries.list` / `queries.get` first. Saved queries are how the org
@@ -104,10 +105,18 @@ for those. These are the behaviors that surprise people:
 5. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
    `kind:"uploaded"`; without it the tool looks at the wrong set of tables and
    reports yours as missing.
-6. **Applied mappings, `tables.create` and `tables.upload` are asynchronous.**
-   `mappings.save` with `status:"applied"` schedules a rebuild; `tables.create` and
-   `tables.upload` return a `jobId` immediately. Poll `mappings.status` (pass the
-   **source** table) or `tables.status`
+6. **Applied mappings, `tables.create`, `tables.update` and `tables.upload` are
+   asynchronous.** `mappings.save` with `status:"applied"` schedules a rebuild;
+   the three `tables.*` writes return a `jobId` immediately. Poll `mappings.status`
+   (pass the **source** table) or `tables.status`
    — the data isn't there the instant the call returns. A `<dataset>_mapped` table
    only shadows its raw source in `integrations.tables` once that rebuild has
    **succeeded**, not on a draft save.
+7. **A failed rebuild leaves the table queryable with STALE rows.** This is the
+   `tables.update` case to watch, and it is why failure here is not "nothing
+   happened": `tables.status` reports `state: "recreate_failed"`, the table still
+   exists and still answers queries, but its rows came from the **previous** build,
+   not from the query now stored. Never present those numbers as the new result —
+   report that the rebuild failed. `state` is the field to switch on (`building`,
+   `ready`, `recreate_failed`, `failed`, `gone`) and it never contradicts the rest
+   of the payload, so trust it over inferring from the other fields.
