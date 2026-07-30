@@ -82,10 +82,17 @@ def read_manifest(wb):
     return ws, rows
 
 
+def style_band(ws, text: str, ncols: int) -> None:
+    """Row-1 banner: text in A1 overflowing across a dark-filled band. Never
+    merged — merged ranges break sorting, filtering, and programmatic reads."""
+    for c in range(1, max(1, ncols) + 1):
+        cell = ws.cell(row=1, column=c)
+        cell.fill, cell.font = DARK_FILL, WHITE_BOLD
+    ws.cell(row=1, column=1, value=text).alignment = Alignment(vertical="top")
+
+
 def style_manifest(ws) -> None:
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(MANIFEST_HEADERS))
-    a1 = ws.cell(row=1, column=1, value=TITLE_TEXT)
-    a1.fill, a1.font, a1.alignment = DARK_FILL, WHITE_BOLD, WRAP_TOP
+    style_band(ws, TITLE_TEXT, len(MANIFEST_HEADERS))
     ws.row_dimensions[1].height = 30
     a2 = ws.cell(row=2, column=1, value=VERSION_MARKER)
     a2.font = GRAY_SMALL
@@ -163,9 +170,7 @@ def write_data_sheet(wb, entry: dict) -> str:
     else:
         ws = wb.create_sheet(entry["sheet"])
     ws.sheet_properties.tabColor = TAB_COLOR
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(1, len(headers)))
-    banner = ws.cell(row=1, column=1, value=BANNER_TEMPLATE.format(date=entry["refreshedAt"][:10]))
-    banner.fill, banner.font, banner.alignment = DARK_FILL, WHITE_BOLD, WRAP_TOP
+    style_band(ws, BANNER_TEMPLATE.format(date=entry["refreshedAt"][:10]), len(headers))
     for i, header in enumerate(headers):
         ws.cell(row=2, column=i + 1, value=header).font = Font(bold=True)
     for r, row in enumerate(rows, start=3):
