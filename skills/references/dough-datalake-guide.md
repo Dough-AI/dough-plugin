@@ -12,9 +12,9 @@ guide holds the behaviors and judgment the schema can't tell you.
   `WITH … SELECT`. It is wrapped as `SELECT * FROM (<your sql>) AS _q LIMIT n`.
   There is no `INSERT`/`UPDATE`/`DELETE`/DDL path — and that's deliberate.
 - The only ways to create durable data are the named write operations:
-  `mappings.save` (enrich a table), `tables.create` (materialize a SELECT), and
-  `tables.annotate` (record what the team knows about a table). All cross the
-  same gated, audited door the web UI uses.
+  `mappings.save` (enrich a table), `tables.create` (materialize a SELECT),
+  `tables.upload` (load a CSV as a table), and `tables.annotate` (record what the
+  team knows about a table). All cross the same gated, audited door the web UI uses.
 
 ### Read the org's conventions before writing new SQL
 - Call `queries.list` / `queries.get` first. Saved queries are how the org
@@ -56,7 +56,13 @@ guide holds the behaviors and judgment the schema can't tell you.
   distinct values of one column (a dimension) to new output columns
   (e.g. `billing_country → region`). Materializes `<dataset>_mapped.<table>`.
 - **Calculated table** (`tables.create`): you want to persist the result of a
-  join/aggregate SELECT as its own table in `dough_calculated`.
+  join/aggregate SELECT as its own table in `dough_calculated`. `tables.update`
+  replaces that query later.
+- **Uploaded table** (`tables.upload`): the data is not in any connected system and
+  has to come from a CSV — a budget, a plan, an allocation key. Use this rather
+  than encoding the numbers as a giant
+  `SELECT … UNION ALL` literal: an uploaded table is a real table people can see,
+  append to, map and join.
 - **Saved query** (`queries.save`): you want to persist SQL (not its result) to
   the org library so people can re-run it in the app.
 
@@ -85,9 +91,23 @@ for those. These are the behaviors that surprise people:
    `aliases: []` / `notes: null` clear. An alias that another table already uses,
    or that is the name of a real table, is **rejected** — not merged, not
    silently dropped. Reading the whole result back tells you what stuck.
-4. **Applied mappings and `tables.create` are asynchronous.** `mappings.save` with
-   `status:"applied"` schedules a rebuild; `tables.create` returns a `jobId`
-   immediately. Poll `mappings.status` (pass the **source** table) or `tables.status`
+4. **`tables.upload` declares types, and checks values against them.** Anything you
+   leave out of `columnTypes` is `STRING`; types are never inferred from the data
+   (a column that looks numeric for 5,000 rows and then holds `N/A` would break a
+   later append). Values are validated BEFORE the load, so a bad cell comes back
+   with its row and column named. Two consequences worth knowing:
+   - **An empty cell is NULL**, not an empty string.
+   - **An append must have exactly the same columns.** Order does not matter — they
+     are matched by name — and the types you declare are ignored in favour of the
+     table's own. A missing or extra column is **rejected**, not null-filled, and the
+     error names which. Money keeps full precision (`NUMERIC` holds 38 digits).
+5. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
+   `kind:"uploaded"`; without it the tool looks at the wrong set of tables and
+   reports yours as missing.
+6. **Applied mappings, `tables.create` and `tables.upload` are asynchronous.**
+   `mappings.save` with `status:"applied"` schedules a rebuild; `tables.create` and
+   `tables.upload` return a `jobId` immediately. Poll `mappings.status` (pass the
+   **source** table) or `tables.status`
    — the data isn't there the instant the call returns. A `<dataset>_mapped` table
    only shadows its raw source in `integrations.tables` once that rebuild has
    **succeeded**, not on a draft save.
