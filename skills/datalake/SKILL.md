@@ -1,6 +1,6 @@
 ---
 name: datalake
-description: Use when analyzing data in the Dough data lake or answering a question about the org's numbers — revenue, margins, metrics, KPIs, "how much did we make", any figure that comes from the data. Covers reusing the org's calculated tables and saved queries first, exploring tables, writing read-only SQL, enriching data with dimension mappings, and materializing a result into a calculated table.
+description: Use when analyzing data in the Dough data lake or answering a question about the org's numbers — revenue, margins, metrics, KPIs, "how much did we make", any figure that comes from the data. Also use when loading data that has no integration behind it (a budget, a plan, an allocation key) from a CSV. Covers reusing the org's calculated tables and saved queries first, exploring tables, writing read-only SQL, enriching data with dimension mappings, uploading a CSV as a table, and materializing a result into a calculated table.
 ---
 
 # Working the Dough data lake
@@ -91,6 +91,23 @@ here silently corrupts every number downstream. Cheap checks that pay off:
 - `integrations.describe` — a table's columns, **plus its aliases and the full
   team notes**. `integrations.preview` — a small sample of rows.
 
+## 1b. Bring in data that has no integration (optional)
+When the numbers you need are not in any connected system — a budget, a headcount
+plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
+- **`tables.upload`.** Send the CSV inline with a bare `name` (no `dataset.`); it
+  lands in `dough_uploaded` and behaves like any other lake table from then on.
+- **`mode` is required.** `create` fails if the name is taken, `append` adds rows,
+  `replace` overwrites and additionally requires `confirm:true`.
+- **Declare the column types** in `columnTypes` (`{"amount":"NUMERIC","period":"DATE"}`);
+  anything you omit is `STRING`. Types are never guessed from the data, and values
+  are checked against them BEFORE the load — so a stray `N/A` in an amount column
+  comes back naming the row and column, not as a failed job later.
+- Asynchronous, like the others: poll `tables.status` with
+  `dataset:"dough_uploaded"` (its default is `dough_calculated`, which will not
+  find an upload).
+- Ask the person for the data's types and meaning rather than inferring them — then
+  record what you were told with `tables.annotate`.
+
 ## 2. Analyze with your own SQL
 When no calculated table or saved query fits, `integrations.query` runs read-only
 SQL — a single `SELECT` or `WITH … SELECT` — so you can explore, join, and
@@ -116,7 +133,10 @@ region`):
 Choose by how people will use it:
 - **A table to build on → `tables.create`.** Materialize a proven SELECT (bare
   `name`, no `dataset.`) into `dough_calculated` as a background job; poll
-  `tables.status`. No update/delete — recreate to change it.
+  `tables.status`. To change its query later use **`tables.update`**, which
+  replaces the table from the new SELECT — read the current one from
+  `tables.status`'s `definitionSql` first, because other queries and mappings may
+  already depend on it. There is no delete.
 - **A query to re-run → `queries.save`.** Store the SQL (create with `name`+`sql`,
   or update by `id`); validates read-only and does not execute.
 - **Knowledge about a table → `tables.annotate`.** Record the names the team calls
