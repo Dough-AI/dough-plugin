@@ -59,8 +59,8 @@ guide holds the behaviors and judgment the schema can't tell you.
   join/aggregate SELECT as its own table in `dough_calculated`. `tables.update`
   replaces that query later.
 - **Uploaded table** (`tables.upload`): the data is not in any connected system and
-  has to come from a CSV — a budget, a plan, an allocation key. Lands in
-  `dough_uploaded`. Use this rather than encoding the numbers as a giant
+  has to come from a CSV — a budget, a plan, an allocation key. Use this rather
+  than encoding the numbers as a giant
   `SELECT … UNION ALL` literal: an uploaded table is a real table people can see,
   append to, map and join.
 - **Saved query** (`queries.save`): you want to persist SQL (not its result) to
@@ -101,9 +101,9 @@ for those. These are the behaviors that surprise people:
      are matched by name — and the types you declare are ignored in favour of the
      table's own. A missing or extra column is **rejected**, not null-filled, and the
      error names which. Money keeps full precision (`NUMERIC` holds 38 digits).
-5. **`tables.status` defaults to `dough_calculated`.** Polling an upload needs
-   `dataset:"dough_uploaded"`; without it the tool looks in the wrong dataset and
-   reports the table as missing.
+5. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
+   `kind:"uploaded"`; without it the tool looks at the wrong set of tables and
+   reports yours as missing.
 6. **Applied mappings, `tables.create` and `tables.upload` are asynchronous.**
    `mappings.save` with `status:"applied"` schedules a rebuild; `tables.create` and
    `tables.upload` return a `jobId` immediately. Poll `mappings.status` (pass the

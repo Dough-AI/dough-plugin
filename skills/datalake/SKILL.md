@@ -94,17 +94,18 @@ here silently corrupts every number downstream. Cheap checks that pay off:
 ## 1b. Bring in data that has no integration (optional)
 When the numbers you need are not in any connected system — a budget, a headcount
 plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
-- **`tables.upload`.** Send the CSV inline with a bare `name` (no `dataset.`); it
-  lands in `dough_uploaded` and behaves like any other lake table from then on.
+- **`tables.upload`.** Send the CSV inline with a bare `name` — Dough decides where
+  it lands and reports the full name back. It behaves like any other lake table
+  from then on.
 - **`mode` is required.** `create` fails if the name is taken, `append` adds rows,
   `replace` overwrites and additionally requires `confirm:true`.
 - **Declare the column types** in `columnTypes` (`{"amount":"NUMERIC","period":"DATE"}`);
   anything you omit is `STRING`. Types are never guessed from the data, and values
   are checked against them BEFORE the load — so a stray `N/A` in an amount column
   comes back naming the row and column, not as a failed job later.
-- Asynchronous, like the others: poll `tables.status` with
-  `dataset:"dough_uploaded"` (its default is `dough_calculated`, which will not
-  find an upload).
+- Asynchronous, like the others: poll `tables.status` with `kind:"uploaded"` (it
+  defaults to `"calculated"`, which will not find an upload). The response tells you
+  the full name to query.
 - Ask the person for the data's types and meaning rather than inferring them — then
   record what you were told with `tables.annotate`.
 
