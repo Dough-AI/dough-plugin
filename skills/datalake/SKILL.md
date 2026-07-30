@@ -134,10 +134,23 @@ region`):
 Choose by how people will use it:
 - **A table to build on → `tables.create`.** Materialize a proven SELECT (bare
   `name`, no `dataset.`) into `dough_calculated` as a background job; poll
-  `tables.status`. To change its query later use **`tables.update`**, which
-  replaces the table from the new SELECT — read the current one from
-  `tables.status`'s `definitionSql` first, because other queries and mappings may
-  already depend on it. There is no delete.
+  `tables.status`. There is no delete.
+- **Changing that table's query later → `tables.update`.** Use it instead of
+  creating `..._v2`. It replaces the table from a new SELECT, so treat it as
+  editing shared infrastructure rather than your own scratch table:
+  - **Read the current query first.** `tables.status` returns `definitionSql` —
+    replace a query you have actually seen, not one you assumed.
+  - **The rebuild is CREATE OR REPLACE, so the schema is replaced too.** Drop or
+    rename a column and anything selecting it — saved queries, mappings, other
+    calculated tables — breaks at its next run, with nothing here detecting it.
+  - **`confirm:true` is required, and it stands for a person's approval.** Set it
+    only after they explicitly agreed to replace THIS table's query, never from a
+    general instruction to fix or improve something. Nothing can verify a human
+    agreed, so the flag is only as good as your restraint — if you are inferring
+    consent rather than remembering it, ask.
+  - Verify the new SELECT with `integrations.query` first, then poll
+    `tables.status`. Until the rebuild succeeds the table still serves its
+    **previous** result.
 - **A query to re-run → `queries.save`.** Store the SQL (create with `name`+`sql`,
   or update by `id`); validates read-only and does not execute.
 - **Knowledge about a table → `tables.annotate`.** Record the names the team calls
