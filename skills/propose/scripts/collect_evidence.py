@@ -14,6 +14,7 @@ import json
 import mimetypes
 import os
 import re
+import shlex
 import sys
 import time
 import urllib.error
@@ -100,18 +101,57 @@ def _content_blocks(record):
     return []
 
 
+def _bash_paths(command, cwd):
+    """File arguments inside a shell command, resolved against the record's cwd.
+
+    A file read with `cat invoice.csv` leaves no other trace in the transcript,
+    so without this a genuinely-used file is silently absent from the evidence —
+    which is the one failure an audit trail cannot have.
+
+    Heuristic by necessity: shell is not parseable in general. It over-collects
+    rather than under-collects, and the existence check downstream discards the
+    noise.
+    """
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        # Unbalanced quotes, heredocs — fall back to whitespace.
+        tokens = command.split()
+
+    found = []
+    for token in tokens:
+        if token.startswith("-") or "://" in token:
+            continue  # a flag, or a URL that merely looks path-shaped
+        if "/" not in token and not re.search(r"\.[A-Za-z0-9]{1,8}$", token):
+            continue
+        path = token if os.path.isabs(token) else os.path.join(cwd or "", token)
+        found.append(os.path.normpath(path))
+    return found
+
+
 def _paths_in_record(record):
     """Every absolute path this record refers to, with how it was referred to."""
     found = []
+    cwd = record.get("cwd")
     for block in _content_blocks(record):
         kind = block.get("type")
-        if kind == "tool_use" and block.get("name") in FILE_TOOLS:
-            target = (block.get("input") or {}).get("file_path")
+        if kind != "tool_use":
+            if kind == "text":
+                for match in PATH_RE.findall(block.get("text") or ""):
+                    found.append((match, "user_prose"))
+            continue
+
+        name = block.get("name")
+        payload = block.get("input") or {}
+        if name in FILE_TOOLS:
+            target = payload.get("file_path")
             if isinstance(target, str):
                 found.append((target, "tool_call"))
-        elif kind == "text":
-            for match in PATH_RE.findall(block.get("text") or ""):
-                found.append((match, "user_prose"))
+        elif name == "Bash":
+            command = payload.get("command")
+            if isinstance(command, str):
+                for path in _bash_paths(command, cwd):
+                    found.append((path, "bash"))
     return found
 
 

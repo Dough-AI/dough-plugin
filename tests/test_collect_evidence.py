@@ -177,6 +177,74 @@ def test_scan_reports_the_transcript_as_its_own_object(tmp_path):
     assert transcript["mime"] == "application/x-ndjson"
 
 
+def bash_tool_use(command, cwd):
+    return {
+        "type": "assistant",
+        "cwd": cwd,
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "name": "Bash", "input": {"command": command}}
+            ],
+        },
+    }
+
+
+def test_scan_finds_a_file_read_with_bash_relative_to_the_record_cwd(tmp_path):
+    """The gap an end-to-end run caught: `cat contractors.csv` left no trace,
+    so a file the session genuinely used was silently missing from evidence."""
+    home = tmp_path / "home"
+    work = tmp_path / "work"
+    work.mkdir()
+    real = work / "contractors.csv"
+    real.write_text("vendor,amount\nacme,100\n", encoding="utf-8")
+    make_project(home, "/work/proj", "sess-1", [bash_tool_use("cat contractors.csv", str(work))])
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert r.returncode == 0, r.stderr
+    candidates = json.loads(r.stdout)["candidates"]
+    assert [c["path"] for c in candidates] == [str(real)]
+    assert candidates[0]["source"] == "bash"
+
+
+def test_scan_finds_an_absolute_path_inside_a_bash_command(tmp_path):
+    home = tmp_path / "home"
+    real = tmp_path / "invoice.pdf"
+    real.write_bytes(b"%PDF-1.4\n")
+    make_project(
+        home, "/work/proj", "sess-1", [bash_tool_use(f"head -c 20 {real}", "/anywhere")]
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert [c["path"] for c in json.loads(r.stdout)["candidates"]] == [str(real)]
+
+
+def test_scan_does_not_mistake_bash_flags_or_urls_for_paths(tmp_path):
+    home = tmp_path / "home"
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "a.csv").write_text("x\n", encoding="utf-8")
+    make_project(
+        home,
+        "/work/proj",
+        "sess-1",
+        [bash_tool_use("curl -s https://example.com/x.json && ls -la a.csv", str(work))],
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert [c["path"] for c in json.loads(r.stdout)["candidates"]] == [str(work / "a.csv")]
+
+
+def test_scan_survives_a_bash_command_that_does_not_tokenize(tmp_path):
+    home = tmp_path / "home"
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "a.csv").write_text("x\n", encoding="utf-8")
+    make_project(
+        home, "/work/proj", "sess-1", [bash_tool_use("cat a.csv \"unclosed", str(work))]
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert r.returncode == 0, r.stderr
+    assert [c["path"] for c in json.loads(r.stdout)["candidates"]] == [str(work / "a.csv")]
+
+
 class _Recorder(http.server.BaseHTTPRequestHandler):
     received = {}
     fail_times = {}
