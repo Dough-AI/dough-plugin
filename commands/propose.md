@@ -67,6 +67,14 @@ Never inline file contents or transcript text into the tool call itself. The
 whole point of this flow is that the bytes travel out of band; pasting them back
 into the payload defeats it and will not fit.
 
-If `proposals.evidence.begin` is not in your tool list, this org is not on a build
-that supports evidence yet. Say so, and follow the `propose` skill without the
-attachment steps rather than failing.
+If `proposals.evidence.begin` is not in your tool list, **stop and say so.** Any
+org that can call `proposals.propose` can attach evidence — the two ship together
+— so its absence means something is out of date, not that this org lacks the
+feature. Most likely the plugin is newer than the Dough server it is talking to,
+or the MCP connection is stale and needs reconnecting.
+
+Do not quietly propose without the evidence. An unbacked proposal is
+indistinguishable from a backed one to whoever approves it, which is the failure
+this command exists to prevent. Report what is missing, say what you think is
+wrong, and let the user decide — if they ask you to proceed without evidence,
+do that.
