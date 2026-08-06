@@ -63,3 +63,113 @@ def test_locate_fails_loudly_when_there_is_no_transcript(tmp_path):
     r = run("locate", "--cwd", "/work/nothing", "--home", str(tmp_path))
     assert r.returncode != 0
     assert "no session transcript" in r.stderr.lower()
+
+
+def assistant_tool_use(name, file_path):
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "name": name, "input": {"file_path": file_path}}
+            ],
+        },
+    }
+
+
+def user_text(text):
+    return {"type": "user", "message": {"role": "user", "content": text}}
+
+
+def test_scan_finds_files_from_read_and_edit_calls(tmp_path):
+    home = tmp_path / "home"
+    real = tmp_path / "contractors.csv"
+    real.write_text("vendor,amount\nacme,100\n", encoding="utf-8")
+    make_project(
+        home,
+        "/work/proj",
+        "sess-1",
+        [assistant_tool_use("Read", str(real)), assistant_tool_use("Edit", str(real))],
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert r.returncode == 0, r.stderr
+    candidates = json.loads(r.stdout)["candidates"]
+    assert [c["path"] for c in candidates] == [str(real)]
+    assert candidates[0]["mime"] == "text/csv"
+    assert candidates[0]["bytes"] == real.stat().st_size
+
+
+def test_scan_deduplicates_and_keeps_the_first_sighting(tmp_path):
+    home = tmp_path / "home"
+    real = tmp_path / "a.csv"
+    real.write_text("x\n", encoding="utf-8")
+    make_project(
+        home,
+        "/work/proj",
+        "sess-1",
+        [
+            {"type": "x"},
+            assistant_tool_use("Read", str(real)),
+            {"type": "x"},
+            assistant_tool_use("Read", str(real)),
+        ],
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    candidates = json.loads(r.stdout)["candidates"]
+    assert len(candidates) == 1
+    assert candidates[0]["first_turn"] == 1
+
+
+def test_scan_finds_a_path_the_user_typed_in_prose(tmp_path):
+    home = tmp_path / "home"
+    real = tmp_path / "invoice.pdf"
+    real.write_bytes(b"%PDF-1.4\n")
+    make_project(home, "/work/proj", "sess-1", [user_text(f"book this from {real}")])
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    candidates = json.loads(r.stdout)["candidates"]
+    assert [c["path"] for c in candidates] == [str(real)]
+    assert candidates[0]["source"] == "user_prose"
+
+
+def test_scan_drops_paths_that_no_longer_exist(tmp_path):
+    home = tmp_path / "home"
+    make_project(
+        home, "/work/proj", "sess-1", [assistant_tool_use("Read", "/gone/missing.csv")]
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert json.loads(r.stdout)["candidates"] == []
+
+
+def test_scan_ignores_git_internals(tmp_path):
+    home = tmp_path / "home"
+    git_file = tmp_path / ".git" / "COMMIT_EDITMSG"
+    git_file.parent.mkdir(parents=True)
+    git_file.write_text("wip\n", encoding="utf-8")
+    make_project(home, "/work/proj", "sess-1", [assistant_tool_use("Read", str(git_file))])
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert json.loads(r.stdout)["candidates"] == []
+
+
+def test_scan_survives_a_malformed_line(tmp_path):
+    home = tmp_path / "home"
+    real = tmp_path / "a.csv"
+    real.write_text("x\n", encoding="utf-8")
+    slug = "".join(c if c.isalnum() else "-" for c in "/work/proj")
+    d = home / ".claude" / "projects" / slug
+    d.mkdir(parents=True)
+    (d / "sess-1.jsonl").write_text(
+        "{not json\n" + json.dumps(assistant_tool_use("Read", str(real))) + "\n",
+        encoding="utf-8",
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    assert r.returncode == 0, r.stderr
+    assert len(json.loads(r.stdout)["candidates"]) == 1
+
+
+def test_scan_reports_the_transcript_as_its_own_object(tmp_path):
+    home = tmp_path / "home"
+    p = make_project(home, "/work/proj", "sess-1", [{"type": "x"}])
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    transcript = json.loads(r.stdout)["transcript"]
+    assert transcript["bytes"] == p.stat().st_size
+    assert transcript["mime"] == "application/x-ndjson"

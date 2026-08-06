@@ -10,9 +10,20 @@ Stdlib only, deliberately — it runs on whatever Python a user happens to have.
 
 import argparse
 import json
+import mimetypes
 import os
+import re
 import sys
 from pathlib import Path
+
+FILE_TOOLS = {"Read", "Write", "Edit", "NotebookEdit"}
+
+# Absolute paths only. A relative path in prose is ambiguous about which cwd it
+# was relative to, and guessing wrong attaches the wrong file to an audit record.
+PATH_RE = re.compile(r"(?:^|[\s\"'`(])(/[^\s\"'`)]+\.[A-Za-z0-9]{1,8})")
+
+# Never evidence, and noisy enough to bury the real files if left in.
+EXCLUDED_PARTS = {".git", "node_modules", "__pycache__", ".next", ".venv"}
 
 
 class TranscriptNotFound(Exception):
@@ -53,6 +64,97 @@ def cmd_locate(args):
     return 0
 
 
+def _excluded(path):
+    return any(part in EXCLUDED_PARTS for part in Path(path).parts)
+
+
+def _iter_records(path):
+    """Yield (turn_index, record). A malformed line is skipped rather than fatal:
+    a transcript is an append-only log that may be mid-write."""
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for index, line in enumerate(handle):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield index, json.loads(line)
+            except ValueError:
+                continue
+
+
+def _content_blocks(record):
+    message = record.get("message")
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if isinstance(content, list):
+        return [block for block in content if isinstance(block, dict)]
+    return []
+
+
+def _paths_in_record(record):
+    """Every absolute path this record refers to, with how it was referred to."""
+    found = []
+    for block in _content_blocks(record):
+        kind = block.get("type")
+        if kind == "tool_use" and block.get("name") in FILE_TOOLS:
+            target = (block.get("input") or {}).get("file_path")
+            if isinstance(target, str):
+                found.append((target, "tool_call"))
+        elif kind == "text":
+            for match in PATH_RE.findall(block.get("text") or ""):
+                found.append((match, "user_prose"))
+    return found
+
+
+def scan_transcript(path):
+    """Candidate evidence files, in the order the session first touched them.
+
+    Structural rather than recalled: an evidence set with silent gaps is exactly
+    what an audit trail cannot have, so this reads the log instead of asking the
+    model what it remembers.
+    """
+    seen = {}
+    for turn, record in _iter_records(path):
+        for candidate, source in _paths_in_record(record):
+            if candidate in seen or _excluded(candidate):
+                continue
+            file_path = Path(candidate)
+            if not file_path.is_file():
+                continue
+            stat = file_path.stat()
+            seen[candidate] = {
+                "path": candidate,
+                "bytes": stat.st_size,
+                "mime": mimetypes.guess_type(candidate)[0] or "application/octet-stream",
+                "mtime": int(stat.st_mtime),
+                "first_turn": turn,
+                "source": source,
+            }
+    return list(seen.values())
+
+
+def cmd_scan(args):
+    path = find_transcript(args.cwd, args.session_id, args.home)
+    stat = Path(path).stat()
+    json.dump(
+        {
+            "sessionId": Path(path).stem,
+            "transcript": {
+                "path": path,
+                "bytes": stat.st_size,
+                "mime": "application/x-ndjson",
+            },
+            "candidates": scan_transcript(path),
+        },
+        sys.stdout,
+    )
+    print()
+    return 0
+
+
 def build_parser():
     # --home and --cwd hang off a shared parent rather than the top-level
     # parser: argparse will not accept a top-level option that appears AFTER
@@ -67,6 +169,10 @@ def build_parser():
     locate = sub.add_parser("locate", parents=[common])
     locate.add_argument("--session-id")
     locate.set_defaults(func=cmd_locate)
+
+    scan = sub.add_parser("scan", parents=[common])
+    scan.add_argument("--session-id")
+    scan.set_defaults(func=cmd_scan)
 
     return parser
 
