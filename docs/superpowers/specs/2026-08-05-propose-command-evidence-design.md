@@ -229,6 +229,14 @@ rides in the existing `transcript` object:
   proposal. A transcript that silently truncated mid-upload is worse than none,
   because it looks complete to whoever reads it later. Cost is one streaming read
   per object, on a path already measured in human-approval hours.
+- **The transcript must be frozen before it is hashed.** It is a live file the
+  session is still appending to — the user answering the confirmation gate writes
+  into the very bytes just hashed. An end-to-end run measured it growing 17,473
+  bytes between declare and upload, which under strict verification refuses the
+  proposal every time. The client snapshots it and uploads the frozen copy. This
+  is also the more truthful artifact: evidence should be the session as it stood
+  when the proposal was made, not one grown to include the approval conversation
+  that followed.
 - **Orphan TTL: 1 hour.** `beginEvidence` mints storage objects; a user who
   cancels at the confirmation gate leaves them unconsumed. Unconsumed evidence
   sets expire after 1 hour and a sweep collects them. One hour comfortably
