@@ -329,6 +329,32 @@ def test_declare_hashes_match_hashlib(tmp_path):
     assert obj["sha256"] == hl.sha256(b"exact bytes").hexdigest()
 
 
+def test_declare_snapshots_the_transcript_so_its_hash_stays_true(tmp_path):
+    """The transcript is a live file: the confirmation exchange between declaring
+    and uploading gets appended to the very bytes being hashed. Without a frozen
+    copy the declared sha256 is stale by the time it is uploaded, and strict
+    server-side verification refuses every proposal."""
+    import hashlib as hl
+
+    home = tmp_path / "home"
+    live = make_project(home, "/work/proj", "sess-1", [{"type": "x"}])
+    r = run(
+        "declare", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home)
+    )
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    declared = out["objects"][0]["sha256"]
+
+    # the session keeps going, exactly as it does while a user is confirming
+    with open(live, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"type": "user", "message": "yes, upload it"}) + "\n")
+
+    snapshot = Path(out["paths"]["transcript"])
+    assert snapshot != live, "paths still point at the live transcript"
+    assert hl.sha256(snapshot.read_bytes()).hexdigest() == declared
+    assert out["objects"][0]["bytes"] == snapshot.stat().st_size
+
+
 def test_declare_rejects_a_path_that_is_not_a_file(tmp_path):
     home = tmp_path / "home"
     make_project(home, "/work/proj", "sess-1", [{"type": "x"}])

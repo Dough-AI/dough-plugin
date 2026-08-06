@@ -15,7 +15,9 @@ import mimetypes
 import os
 import re
 import shlex
+import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -209,24 +211,44 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def declare_objects(transcript_path, files):
+def snapshot_transcript(transcript_path, into=None):
+    """Freeze the transcript before hashing it.
+
+    The session keeps writing to this file — the user confirming the upload adds
+    to the very bytes being hashed. Hash the live file and the sha256 is already
+    stale by the time the upload runs, so strict server-side verification refuses
+    every proposal.
+
+    Freezing is also the more truthful artifact: the evidence should be the
+    session as it stood when the proposal was made, not one that has grown to
+    include the approval conversation that followed.
+    """
+    directory = Path(into) if into else Path(tempfile.mkdtemp(prefix="dough-evidence-"))
+    directory.mkdir(parents=True, exist_ok=True)
+    frozen = directory / Path(transcript_path).name
+    shutil.copyfile(transcript_path, frozen)
+    return str(frozen)
+
+
+def declare_objects(transcript_path, files, snapshot_dir=None):
     """The exact `objects[]` array beginEvidence expects.
 
     The transcript is always key "transcript"; curated files are f0, f1, ... in
     the order the agent listed them, so a manifest entry maps back to an upload.
     """
-    stat = Path(transcript_path).stat()
+    frozen = snapshot_transcript(transcript_path, snapshot_dir)
+    stat = Path(frozen).stat()
     objects = [
         {
             "key": "transcript",
             "role": "transcript",
-            "filename": Path(transcript_path).name,
+            "filename": Path(frozen).name,
             "mime": "application/x-ndjson",
             "bytes": stat.st_size,
-            "sha256": sha256_file(transcript_path),
+            "sha256": sha256_file(frozen),
         }
     ]
-    paths = {"transcript": transcript_path}
+    paths = {"transcript": frozen}
     for index, file_path in enumerate(files):
         key = f"f{index}"
         file_stat = Path(file_path).stat()
@@ -250,7 +272,7 @@ def cmd_declare(args):
     if missing:
         print(f"Not a file: {', '.join(missing)}", file=sys.stderr)
         return 2
-    objects, paths = declare_objects(transcript_path, args.files)
+    objects, paths = declare_objects(transcript_path, args.files, args.snapshot_dir)
     json.dump(
         {"sessionId": Path(transcript_path).stem, "objects": objects, "paths": paths},
         sys.stdout,
@@ -330,6 +352,10 @@ def build_parser():
     declare = sub.add_parser("declare", parents=[common])
     declare.add_argument("--session-id")
     declare.add_argument("--files", nargs="*", default=[])
+    declare.add_argument(
+        "--snapshot-dir",
+        help="Where to freeze the transcript. Defaults to a fresh temp dir.",
+    )
     declare.set_defaults(func=cmd_declare)
 
     upload = sub.add_parser("upload", parents=[common])
