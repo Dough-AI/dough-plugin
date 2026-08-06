@@ -22,7 +22,10 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
   without re-deriving anything — includes a bundled openpyxl script for
   deterministic workbook writes), and `propose` (raise a write to a connected
   accounting system for human approval instead of performing it).
-- **Command:** `/dough:status`.
+- **Commands:** `/dough:status`, and `/dough:propose` — raises a write for
+  approval with the session transcript and the files behind it attached, so an
+  approver can see what the numbers came from. Evidence is hashed locally and
+  uploaded straight to storage; only a reference travels in the tool call.
 
 ## Updating
 

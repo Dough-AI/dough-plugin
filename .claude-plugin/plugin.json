@@ -1,10 +1,20 @@
 {
   "name": "dough",
   "displayName": "Dough",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Build and run Dough datalake analyses from Claude Code: explore your data lake, write read-only SQL, enrich with dimension mappings, upload a CSV as a table, and materialize calculated tables.",
-  "author": { "name": "Dough", "email": "uday@usedough.com" },
+  "author": {
+    "name": "Dough",
+    "email": "uday@usedough.com"
+  },
   "homepage": "https://usedough.com",
   "repository": "https://github.com/Dough-AI/dough-plugin",
-  "keywords": ["dough", "datalake", "data-analysis", "sql", "bigquery", "finance"]
+  "keywords": [
+    "dough",
+    "datalake",
+    "data-analysis",
+    "sql",
+    "bigquery",
+    "finance"
+  ]
 }
