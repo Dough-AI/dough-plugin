@@ -10,6 +10,11 @@ is how a change gets raised; it does **not** perform the write. For exact inputs
 call `tools.describe("proposals.propose")` — the descriptor carries the currently
 proposable actions and the payload shape for each.
 
+**With evidence attached:** `/dough:propose` runs this same flow and additionally
+uploads the session transcript and the files behind the entry, so an approver can
+see what the numbers came from. Prefer it when the reasoning matters. The bytes
+travel out of band — never paste file contents into the tool call.
+
 **The moment this applies:** you have worked out a change and are about to say
 "you'll need to book this in QuickBooks". Propose it instead. Telling a person to
 retype numbers you already have is the failure this replaces — they will retype
