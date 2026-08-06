@@ -1,8 +1,10 @@
+import http.server
 import importlib.util
 import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 SCRIPT = Path(__file__).parent.parent / "skills" / "propose" / "scripts" / "collect_evidence.py"
@@ -173,3 +175,131 @@ def test_scan_reports_the_transcript_as_its_own_object(tmp_path):
     transcript = json.loads(r.stdout)["transcript"]
     assert transcript["bytes"] == p.stat().st_size
     assert transcript["mime"] == "application/x-ndjson"
+
+
+class _Recorder(http.server.BaseHTTPRequestHandler):
+    received = {}
+    fail_times = {}
+
+    def do_PUT(self):
+        key = self.path.strip("/")
+        remaining = _Recorder.fail_times.get(key, 0)
+        if remaining > 0:
+            _Recorder.fail_times[key] = remaining - 1
+            self.send_response(500)
+            self.end_headers()
+            return
+        length = int(self.headers.get("content-length", 0))
+        _Recorder.received[key] = self.rfile.read(length)
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def serve():
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Recorder)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
+def upload_plan(tmp_path, port, key="f0", body=b"hello"):
+    data = tmp_path / "a.csv"
+    data.write_bytes(body)
+    plan = tmp_path / "plan.json"
+    plan.write_text(
+        json.dumps(
+            {
+                "uploads": [
+                    {
+                        "key": key,
+                        "method": "PUT",
+                        "url": f"http://127.0.0.1:{port}/{key}",
+                        "headers": {},
+                    }
+                ],
+                "paths": {key: str(data)},
+            }
+        )
+    )
+    return str(plan)
+
+
+def test_declare_emits_the_begin_evidence_objects(tmp_path):
+    home = tmp_path / "home"
+    make_project(home, "/work/proj", "sess-1", [{"type": "x"}])
+    data = tmp_path / "a.csv"
+    data.write_text("vendor,amount\n", encoding="utf-8")
+    r = run(
+        "declare", "--files", str(data),
+        "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home),
+    )
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert out["sessionId"] == "sess-1"
+    assert [o["key"] for o in out["objects"]] == ["transcript", "f0"]
+    assert out["objects"][0]["role"] == "transcript"
+    assert out["objects"][1]["role"] == "file"
+    assert len(out["objects"][1]["sha256"]) == 64
+    assert out["objects"][1]["bytes"] == data.stat().st_size
+
+
+def test_declare_hashes_match_hashlib(tmp_path):
+    import hashlib as hl
+
+    home = tmp_path / "home"
+    make_project(home, "/work/proj", "sess-1", [{"type": "x"}])
+    data = tmp_path / "a.csv"
+    data.write_bytes(b"exact bytes")
+    r = run(
+        "declare", "--files", str(data),
+        "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home),
+    )
+    obj = json.loads(r.stdout)["objects"][1]
+    assert obj["sha256"] == hl.sha256(b"exact bytes").hexdigest()
+
+
+def test_declare_rejects_a_path_that_is_not_a_file(tmp_path):
+    home = tmp_path / "home"
+    make_project(home, "/work/proj", "sess-1", [{"type": "x"}])
+    r = run(
+        "declare", "--files", "/gone/missing.csv",
+        "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home),
+    )
+    assert r.returncode != 0
+    assert "not a file" in r.stderr.lower()
+
+
+def test_upload_puts_each_object_to_its_url(tmp_path):
+    _Recorder.received, _Recorder.fail_times = {}, {}
+    server = serve()
+    plan = upload_plan(tmp_path, server.server_address[1])
+    r = run("upload", "--plan", plan)
+    server.shutdown()
+    assert r.returncode == 0, r.stderr
+    assert _Recorder.received["f0"] == b"hello"
+    assert json.loads(r.stdout)["failed"] == []
+
+
+def test_upload_retries_a_failing_object_then_succeeds(tmp_path):
+    _Recorder.received, _Recorder.fail_times = {}, {"f0": 2}
+    server = serve()
+    plan = upload_plan(tmp_path, server.server_address[1])
+    r = run("upload", "--plan", plan, "--retries", "3", "--backoff", "0")
+    server.shutdown()
+    assert r.returncode == 0, r.stderr
+    assert _Recorder.received["f0"] == b"hello"
+
+
+def test_upload_reports_failure_without_deciding_what_to_do(tmp_path):
+    _Recorder.received, _Recorder.fail_times = {}, {"f0": 99}
+    server = serve()
+    plan = upload_plan(tmp_path, server.server_address[1])
+    r = run("upload", "--plan", plan, "--retries", "2", "--backoff", "0")
+    server.shutdown()
+    assert r.returncode == 1
+    out = json.loads(r.stdout)
+    assert out["failed"][0]["key"] == "f0"
+    assert out["uploaded"] == []

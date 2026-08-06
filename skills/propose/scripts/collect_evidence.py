@@ -9,12 +9,18 @@ Stdlib only, deliberately — it runs on whatever Python a user happens to have.
 """
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
 import re
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+
+CHUNK = 1024 * 1024
 
 FILE_TOOLS = {"Read", "Write", "Edit", "NotebookEdit"}
 
@@ -155,6 +161,113 @@ def cmd_scan(args):
     return 0
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def declare_objects(transcript_path, files):
+    """The exact `objects[]` array beginEvidence expects.
+
+    The transcript is always key "transcript"; curated files are f0, f1, ... in
+    the order the agent listed them, so a manifest entry maps back to an upload.
+    """
+    stat = Path(transcript_path).stat()
+    objects = [
+        {
+            "key": "transcript",
+            "role": "transcript",
+            "filename": Path(transcript_path).name,
+            "mime": "application/x-ndjson",
+            "bytes": stat.st_size,
+            "sha256": sha256_file(transcript_path),
+        }
+    ]
+    paths = {"transcript": transcript_path}
+    for index, file_path in enumerate(files):
+        key = f"f{index}"
+        file_stat = Path(file_path).stat()
+        objects.append(
+            {
+                "key": key,
+                "role": "file",
+                "filename": Path(file_path).name,
+                "mime": mimetypes.guess_type(file_path)[0] or "application/octet-stream",
+                "bytes": file_stat.st_size,
+                "sha256": sha256_file(file_path),
+            }
+        )
+        paths[key] = file_path
+    return objects, paths
+
+
+def cmd_declare(args):
+    transcript_path = find_transcript(args.cwd, args.session_id, args.home)
+    missing = [f for f in args.files if not Path(f).is_file()]
+    if missing:
+        print(f"Not a file: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    objects, paths = declare_objects(transcript_path, args.files)
+    json.dump(
+        {"sessionId": Path(transcript_path).stem, "objects": objects, "paths": paths},
+        sys.stdout,
+    )
+    print()
+    return 0
+
+
+def _put(url, headers, path):
+    with open(path, "rb") as handle:
+        body = handle.read()
+    request = urllib.request.Request(url, data=body, method="PUT")
+    for name, value in (headers or {}).items():
+        request.add_header(name, value)
+    request.add_header("content-length", str(len(body)))
+    with urllib.request.urlopen(request, timeout=120) as response:
+        if response.status >= 300:
+            raise urllib.error.HTTPError(url, response.status, "upload failed", {}, None)
+
+
+def cmd_upload(args):
+    """Upload every object, retrying with backoff.
+
+    On unrecoverable failure this reports and exits non-zero. It deliberately
+    does NOT decide whether to propose anyway — that is a human's call, and
+    partial evidence should never happen silently.
+    """
+    plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+    paths = plan.get("paths", {})
+    uploaded, failed = [], []
+    attempts = max(1, args.retries)
+
+    for upload in plan.get("uploads", []):
+        key = upload["key"]
+        path = paths.get(key)
+        if not path:
+            failed.append({"key": key, "error": "no local path for this key"})
+            continue
+        last_error = None
+        for attempt in range(attempts):
+            try:
+                _put(upload["url"], upload.get("headers"), path)
+                last_error = None
+                uploaded.append({"key": key, "path": path})
+                break
+            except Exception as exc:  # network, HTTP, filesystem — all retryable
+                last_error = str(exc)
+                if attempt + 1 < attempts and args.backoff > 0:
+                    time.sleep(args.backoff * (2**attempt))
+        if last_error is not None:
+            failed.append({"key": key, "path": path, "error": last_error})
+
+    json.dump({"uploaded": uploaded, "failed": failed}, sys.stdout)
+    print()
+    return 1 if failed else 0
+
+
 def build_parser():
     # --home and --cwd hang off a shared parent rather than the top-level
     # parser: argparse will not accept a top-level option that appears AFTER
@@ -173,6 +286,17 @@ def build_parser():
     scan = sub.add_parser("scan", parents=[common])
     scan.add_argument("--session-id")
     scan.set_defaults(func=cmd_scan)
+
+    declare = sub.add_parser("declare", parents=[common])
+    declare.add_argument("--session-id")
+    declare.add_argument("--files", nargs="*", default=[])
+    declare.set_defaults(func=cmd_declare)
+
+    upload = sub.add_parser("upload", parents=[common])
+    upload.add_argument("--plan", required=True)
+    upload.add_argument("--retries", type=int, default=3)
+    upload.add_argument("--backoff", type=float, default=1.0)
+    upload.set_defaults(func=cmd_upload)
 
     return parser
 
