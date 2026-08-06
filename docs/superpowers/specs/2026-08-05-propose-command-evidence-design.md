@@ -360,12 +360,18 @@ Deterministic at every seam; only one end-to-end needs live storage.
 ## Sequencing
 
 1. Freeze the `evidence.begin` contract above. Both repos build against it.
-2. `Dough-Alpha`: tables, `evidence.begin`, consume-path verification, sweep.
+2. `Dough-Alpha`: tables, `evidence.begin`, consume path, sweep.
 3. `dough-plugin`: `collect_evidence.py`, `commands/propose.md`.
 4. `Dough-Alpha`: viewer.
 
 `/dough:propose` ships when 2 and 3 are done. There is deliberately no
 manifest-only interim release — full fidelity or nothing.
+
+The server-side plan lives in that repo, at
+`Dough-Alpha/docs/superpowers/plans/2026-08-05-evidence-channel-dough-alpha.md`.
+It is not mirrored here: a second copy drifted from it within a day, and a stale
+plan that contradicts the implementation is worse than no plan. This spec is the
+shared artifact; each repo keeps its own plan.
 
 ## Explicitly out of scope
 
