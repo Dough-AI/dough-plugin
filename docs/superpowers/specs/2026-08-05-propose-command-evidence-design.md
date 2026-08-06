@@ -87,7 +87,7 @@ evidence; a script moves the *bytes*; the tool call carries only *references*.**
    │ 2. scan + curate the evidence list               │  model
    └───────────────────┬─────────────────────────────┘
                        ▼
-   proposals.beginEvidence  { sessionId, objects[] }    ← OAuth'd MCP call, ~150 tok
+   proposals.evidence.begin  { sessionId, objects[] }    ← OAuth'd MCP call, ~150 tok
         └──▶ presigned PUT per object
         ◀── { evidenceId, expiresAt, uploads[], rejected[] }
                        ▼
@@ -102,11 +102,11 @@ evidence; a script moves the *bytes*; the tool call carries only *references*.**
    proposals.propose  { …, transcript: { evidenceId,
                         sessionId, manifest } }          ← ~200 tok
                        ▼
-   server: verify → write proposal_transcripts.objectPath
-                  + proposal_evidence rows
+   server: claim set → HEAD each object → proposal_evidence rows
+           (the transcript is one of those rows, role: 'transcript')
 ```
 
-### Why `beginEvidence` mints presigned URLs
+### Why `evidence.begin` mints presigned URLs
 
 OAuth already works for MCP; nothing else in the plugin holds credentials. Minting
 a short-lived presigned URL through an authenticated tool call keeps the bundler
@@ -116,8 +116,8 @@ refresh in bash. It also gives the server a place to enforce caps and entitlemen
 
 ### One PUT per object, not a tarball
 
-Each file stays individually addressable and hashable, and server-side extraction
-can pull searchable text on ingest. A tarball would hide all of that.
+Each file stays individually addressable, hashable, and separately downloadable
+by an approver. A tarball would hide all of that.
 
 ### Capture is on-demand only
 
@@ -143,7 +143,7 @@ collect_evidence.py --scan          ← no model, no network
 The model then curates `candidates.json` down to what genuinely backs the entry,
 dropping plugin source it happened to read, scratchpad files, and anything under
 `.git/`. The `note` on each kept file is the model's one-line justification and
-travels into the manifest. After `beginEvidence` returns, the user sees the result
+travels into the manifest. After `evidence.begin` returns, the user sees the result
 — including anything the server rejected — before a byte moves:
 
 ```
@@ -162,7 +162,7 @@ The gate is load-bearing. This command ships a user's local files and their enti
 session — including anything that session touched — to a server. Making that
 visible and refusable at the moment it happens is the honest design.
 
-## The `beginEvidence` contract
+## The `evidence.begin` contract
 
 This is what unblocks both repos; both build against it in parallel.
 
@@ -199,7 +199,7 @@ This is what unblocks both repos; both build against it in parallel.
 }
 ```
 
-Rejections arrive *before* upload, which is why `beginEvidence` is called ahead of
+Rejections arrive *before* upload, which is why `evidence.begin` is called ahead of
 the confirmation gate rather than after it: the list the user approves is then
 already truthful about what will actually land. Minting URLs the user may never
 use is the cost, and the orphan TTL below is what pays it.
@@ -224,11 +224,14 @@ rides in the existing `transcript` object:
 - **Single-use, org-bound.** An `evidenceId` is consumable exactly once, by the
   org that minted it. Otherwise it is a handle for attaching one org's session to
   another org's proposal.
-- **Strict integrity.** On consume, the server streams each uploaded object and
-  verifies `sha256` against what the client declared. Mismatch refuses the
-  proposal. A transcript that silently truncated mid-upload is worse than none,
-  because it looks complete to whoever reads it later. Cost is one streaming read
-  per object, on a path already measured in human-approval hours.
+- **Integrity, as built: `HEAD` for existence and size, not a streaming hash.**
+  The design originally verified `sha256` by streaming every object. That was cut:
+  a hash cannot catch a dishonest client, since one that wants to lie simply
+  declares the hash of whatever it uploaded. It proves the upload matches the
+  *declaration*, not that the declaration is true. Presigns are issued
+  `upsert: false`, so an object is immutable once it lands and a size check
+  catches the realistic failure — truncated or missing upload — at near-zero cost.
+  `sha256` is still stored, labelled explicitly as a client claim.
 - **The transcript must be frozen before it is hashed.** It is a live file the
   session is still appending to — the user answering the confirmation gate writes
   into the very bytes just hashed. An end-to-end run measured it growing 17,473
@@ -237,28 +240,34 @@ rides in the existing `transcript` object:
   is also the more truthful artifact: evidence should be the session as it stood
   when the proposal was made, not one grown to include the approval conversation
   that followed.
-- **Orphan TTL: 1 hour.** `beginEvidence` mints storage objects; a user who
+- **Orphan TTL: 1 hour.** `evidence.begin` mints storage objects; a user who
   cancels at the confirmation gate leaves them unconsumed. Unconsumed evidence
   sets expire after 1 hour and a sweep collects them. One hour comfortably
   exceeds a propose flow and matches the presigned-URL lifetime.
-- **Per-object cap: 25 MB**, following the `MAX_CONTENT_BYTES` precedent.
+- **Caps:** 25 MB per object (following the `MAX_CONTENT_BYTES` precedent),
+  100 MB per set, 64 objects per set.
+- **Uploads are write-once.** Presigns are issued `upsert: false`, so a recorded
+  evidence path cannot be replaced after the proposal citing it was approved. A
+  *failed* PUT leaves no object behind, so client-side retries remain safe.
 
 ## Data model
 
-- `proposal_transcripts` — unchanged shape. Finally gets an `objectPath` writer
-  for the session JSONL. The one-of(`content`, `objectPath`) constraint stands.
+- `proposal_transcripts` — **untouched.** It keeps serving the inline `content`
+  path exactly as today. The transcript-as-evidence case is a `proposal_evidence`
+  row with `role: 'transcript'`, so no branch is needed anywhere in the storage
+  code and no migration runs against an existing table.
 - `proposal_evidence` — **new**. One row per file: `proposalId`, `key`,
   `filename`, `mime`, `bytes`, `sha256`, `storageObjectPath`, `role`,
-  `extractedText`, `note`. Separate from `proposal_transcripts` because that
-  table is shaped for a single blob. `extractedText` comes free from the existing
-  extractors and is what makes evidence searchable later.
-- `proposal_evidence_sets` — **new**. Pending sets minted by `beginEvidence`:
+  `note`, and a `state` of `stored` or `missing`. One row per **declared**
+  object, so a partial set can say precisely what is absent. No `extractedText`:
+  file search is wired exclusively to `file_versions`, so the column would feed
+  nothing.
+- `proposal_evidence_sets` — **new**. Pending sets minted by `evidence.begin`:
   `evidenceId`, `organizationId`, `userId`, `sessionId`, `expiresAt`,
   `consumedAt`, declared object manifest.
-- `proposals.evidenceStatus` — **new column**. `complete` when every declared
-  object landed and verified, `partial` when the user chose to proceed without
-  one, `none` for proposals raised without evidence at all. The approval UI reads
-  it to warn an approver that they are looking at an incomplete record.
+- **No `evidenceStatus` column.** Status is derived: any row `missing` →
+  partial, no rows → none. A stored column can drift from the rows it describes,
+  and dropping it removes the only migration against an existing table.
 
 ## Failure handling
 
@@ -275,9 +284,11 @@ fail, it does **not** decide — it surfaces the state and the user chooses:
   [retry / propose without it / cancel]
 ```
 
-"Propose without it" sets `evidenceStatus: partial` on the proposal, recording
-exactly what is missing so the approver sees the gap. Partial is therefore always
-a state a human chose, never one that happened silently.
+"Propose without it" keeps the failed object **in the declaration**. The server
+records it `missing` and names it on the proposal, so the approver sees the gap.
+Re-declaring without that object is the one action that would hide it. Status
+reflects storage rather than the client's belief, so an upload that actually
+succeeded is recorded as such even if the client read the response as a failure.
 
 Refusals from `proposals.propose` itself are unchanged and already documented in
 `skills/propose/SKILL.md`.
@@ -299,7 +310,7 @@ Load skills/propose and follow it. $ARGUMENTS
 Additionally, before calling proposals.propose:
 1. Run scripts/collect_evidence.py --scan
 2. Curate candidates to what genuinely backs this entry, with a note on each
-3. proposals.beginEvidence with the curated list
+3. proposals.evidence.begin with the curated list
 4. Show the user what will upload, including anything rejected; get confirmation
 5. collect_evidence.py --upload
 6. Attach { evidenceId, sessionId, manifest } as transcript
@@ -312,10 +323,22 @@ argument it falls through to the skill's normal questioning.
 ## Viewer
 
 Replace the placeholder at `page.tsx:370` with a real viewer: the transcript
-streamed from object storage behind the existing admin-only permission gate, and
-the evidence list with per-file name, size, hash, and a download link. The
-permission gate stays exactly as narrow as it is today — a transcript can contain
-anything the session touched.
+streamed from object storage, and the evidence list with per-file name, size,
+hash, and a download link.
+
+**Read gate: proposal access is the grant.** Anyone who can open the proposal can
+read and download its evidence, including the transcript. This replaces the
+admin-only gate at `page.tsx:136` and resolves USE-258 in that direction.
+
+That gate assumed a transcript could carry source code and secrets, which is true
+of a transcript recorded in an engineering repo. Clients run Dough from a finance
+working directory with no code in it, so theirs hold CSVs, query results and their
+own numbers — going to an approver already trusted with the books. The narrower
+gate was protecting the wrong population at the cost of making the evidence
+unreadable by its actual audience.
+
+Consequence: **no denoising or rendering layer.** Ship the raw JSONL. A filter is
+code whose every rule is a chance to hide something an auditor wanted.
 
 ## Testing
 
@@ -324,10 +347,10 @@ Deterministic at every seam; only one end-to-end needs live storage.
 - **Scanner** — fixture JSONLs covering attachments, Read/Write/Edit calls,
   compacted sessions, and paths that no longer exist, asserted against expected
   candidate sets.
-- **`beginEvidence`** — over-cap rejection, unknown mime, org binding, expiry
+- **`evidence.begin`** — over-cap rejection, unknown mime, org binding, expiry
   stamping.
 - **Consume path** — hash mismatch refuses; replayed `evidenceId` refuses;
-  expired set refuses; happy path writes `objectPath` plus evidence rows.
+  expired set refuses; size mismatch refuses; happy path writes evidence rows.
 - **Bundler** — fake presign server exercising retry, backoff, and the
   partial-failure prompt.
 - **Sweep** — unconsumed sets past TTL collected; consumed sets untouched.
@@ -336,8 +359,8 @@ Deterministic at every seam; only one end-to-end needs live storage.
 
 ## Sequencing
 
-1. Freeze the `beginEvidence` contract above. Both repos build against it.
-2. `Dough-Alpha`: tables, `beginEvidence`, consume-path verification, sweep.
+1. Freeze the `evidence.begin` contract above. Both repos build against it.
+2. `Dough-Alpha`: tables, `evidence.begin`, consume-path verification, sweep.
 3. `dough-plugin`: `collect_evidence.py`, `commands/propose.md`.
 4. `Dough-Alpha`: viewer.
 

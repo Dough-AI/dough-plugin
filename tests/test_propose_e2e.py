@@ -74,7 +74,7 @@ def read_log(path):
 
 
 def start_sink(log, uploads):
-    """The PUT target beginEvidence hands out.
+    """The PUT target evidence.begin hands out.
 
     Owned by the test, not by the MCP server: Claude Code respawns the server
     every turn, so a sink living in there would change port mid-run and every
@@ -154,7 +154,7 @@ def run_agent(tmp_path_factory):
                 "--mcp-config", str(mcp_config),
                 "--strict-mcp-config",
                 "--allowedTools", "Bash", "Read", "Write",
-                "mcp__dough__proposals__beginEvidence",
+                "mcp__dough__proposals__evidence__begin",
                 "mcp__dough__proposals__propose",
                 "--permission-mode", "bypassPermissions",
                 *extra,
@@ -213,15 +213,15 @@ def test_nothing_is_uploaded_before_the_user_confirms(run_agent):
 
 
 def test_evidence_is_declared_before_it_is_proposed(run_agent):
-    began = calls(run_agent["entries"], "proposals__beginEvidence")
+    began = calls(run_agent["entries"], "proposals__evidence__begin")
     proposed = calls(run_agent["entries"], "proposals__propose")
-    assert began, "never called beginEvidence"
+    assert began, "never called proposals.evidence.begin"
     assert proposed, "never called propose"
     assert began[0]["_line"] < proposed[0]["_line"]
 
 
 def test_every_declared_object_carries_a_real_sha256(run_agent):
-    objects = calls(run_agent["entries"], "proposals__beginEvidence")[0]["args"]["objects"]
+    objects = calls(run_agent["entries"], "proposals__evidence__begin")[0]["args"]["objects"]
     assert objects, "declared nothing"
     for o in objects:
         assert re.fullmatch(r"[0-9a-f]{64}", o["sha256"]), o
@@ -229,12 +229,12 @@ def test_every_declared_object_carries_a_real_sha256(run_agent):
 
 
 def test_the_session_transcript_is_among_the_evidence(run_agent):
-    objects = calls(run_agent["entries"], "proposals__beginEvidence")[0]["args"]["objects"]
+    objects = calls(run_agent["entries"], "proposals__evidence__begin")[0]["args"]["objects"]
     assert [o for o in objects if o["role"] == "transcript"], objects
 
 
 def test_the_uploaded_bytes_match_what_was_declared(run_agent):
-    objects = calls(run_agent["entries"], "proposals__beginEvidence")[0]["args"]["objects"]
+    objects = calls(run_agent["entries"], "proposals__evidence__begin")[0]["args"]["objects"]
     uploads = {e["key"]: e for e in run_agent["entries"] if e["kind"] == "upload"}
     assert uploads, "nothing was uploaded"
     for o in objects:
@@ -244,7 +244,7 @@ def test_the_uploaded_bytes_match_what_was_declared(run_agent):
 
 
 def test_the_proposal_cites_the_evidence_it_uploaded(run_agent):
-    began = calls(run_agent["entries"], "proposals__beginEvidence")[0]
+    began = calls(run_agent["entries"], "proposals__evidence__begin")[0]
     proposed = calls(run_agent["entries"], "proposals__propose")[0]
     transcript = proposed["args"].get("transcript") or {}
     assert transcript.get("evidenceId"), "propose carried no evidenceId"

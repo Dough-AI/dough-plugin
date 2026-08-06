@@ -40,7 +40,7 @@ def record(kind, **fields):
 
 TOOLS = [
     {
-        "name": "proposals__beginEvidence",
+        "name": "proposals__evidence__begin",
         "description": (
             "Declare the files and session transcript you are about to attach to a "
             "proposal. Returns one presigned PUT per object so bytes go straight to "
@@ -92,7 +92,7 @@ TOOLS = [
 
 
 def call_tool(name, args):
-    if name == "proposals__beginEvidence":
+    if name == "proposals__evidence__begin":
         evidence_id = f"ev_{uuid.uuid4().hex[:12]}"
         uploads = [
             {
@@ -108,6 +108,7 @@ def call_tool(name, args):
             "expiresAt": "2099-01-01T00:00:00Z",
             "uploads": uploads,
             "rejected": [],
+            "message": f"{len(uploads)} object(s) ready to upload.",
         }
 
     if name == "proposals__propose":

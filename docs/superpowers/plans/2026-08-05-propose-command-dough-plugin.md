@@ -4,12 +4,12 @@
 
 **Goal:** Ship a `/dough:propose` slash command that raises a write for approval with the session transcript and its backing files attached, without routing any of those bytes through model-generated tool arguments.
 
-**Architecture:** A Python script scans the Claude Code session JSONL for every file the session touched and emits candidates. The model curates that list, calls `proposals.beginEvidence` for presigned upload URLs, shows the user exactly what will upload, then the script `curl`s the bytes straight to storage. Only `{ evidenceId, sessionId, manifest }` — a couple hundred tokens — travels in the `proposals.propose` call.
+**Architecture:** A Python script scans the Claude Code session JSONL for every file the session touched and emits candidates. The model curates that list, calls `proposals.evidence.begin` for presigned upload URLs, shows the user exactly what will upload, then the script `curl`s the bytes straight to storage. Only `{ evidenceId, sessionId, manifest }` — a couple hundred tokens — travels in the `proposals.propose` call.
 
 **Tech Stack:** Python 3 (stdlib only), Claude Code plugin commands + skills, pytest.
 
 **Repo:** `/usr/local/code/dough-plugin`
-**Companion plan:** the server half (`proposals.beginEvidence`, verification, storage) is built in parallel in `Dough-Alpha`. Tasks 1–3 here need no server; only the end-to-end check in Task 4 does.
+**Companion plan:** the server half (`proposals.evidence.begin`, verification, storage) is built in parallel in `Dough-Alpha`. Tasks 1–3 here need no server; only the end-to-end check in Task 4 does.
 **Design spec:** `docs/superpowers/specs/2026-08-05-propose-command-evidence-design.md`
 
 ## Global Constraints
@@ -25,7 +25,7 @@
 
 The server builds against this too. Do not change it without updating the companion plan.
 
-**`proposals.beginEvidence` request:**
+**`proposals.evidence.begin` request:**
 
 ```jsonc
 {
@@ -528,7 +528,7 @@ git commit -m "feat(propose): scan the session transcript for evidence candidate
 - Consumes: `scan_transcript` from Task 2
 - Produces:
   - `sha256_file(path: str) -> str`
-  - `cmd_declare` — CLI `declare --files a.csv b.pdf [--session-id ID]` → the exact `objects[]` array for `beginEvidence`
+  - `cmd_declare` — CLI `declare --files a.csv b.pdf [--session-id ID]` → the exact `objects[]` array for `evidence.begin`
   - `cmd_upload` — CLI `upload --plan plan.json` → `{"uploaded": [...], "failed": [...]}`, exit 1 if anything failed
 
 - [ ] **Step 1: Write the failing test**
@@ -688,7 +688,7 @@ def sha256_file(path):
 
 
 def declare_objects(transcript_path, files):
-    """The exact `objects[]` array beginEvidence expects.
+    """The exact `objects[]` array evidence.begin expects.
 
     The transcript is always key "transcript"; curated files are f0, f1, ... in
     the order the agent listed them, so a manifest entry maps back to an upload.
@@ -819,7 +819,7 @@ git commit -m "feat(propose): hash, declare, and upload evidence objects"
 - Modify: `README.md`
 
 **Interfaces:**
-- Consumes: every subcommand from Tasks 1–3, and `proposals.beginEvidence` from the companion plan
+- Consumes: every subcommand from Tasks 1–3, and `proposals.evidence.begin` from the companion plan
 
 - [ ] **Step 1: Write the command**
 
@@ -829,7 +829,7 @@ Create `commands/propose.md`:
 ---
 description: Raise a write to a connected accounting system for human approval, with the session and its evidence attached.
 argument-hint: [what to propose, e.g. "accrue Sept contractor invoices"]
-allowed-tools: Bash(python3:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__beginEvidence, mcp__dough__tools__describe
+allowed-tools: Bash(python3:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe
 ---
 
 Load the `propose` skill and follow it to build the entry. $ARGUMENTS
@@ -846,14 +846,14 @@ Attach the session and its evidence as well. The script lives at
 
 3. **Declare.** `python3 <script> declare --files <kept paths>` — hashes each
    file and emits the `objects[]` array. Pass it straight to
-   `proposals.beginEvidence` with the `sessionId` from the scan.
+   `proposals.evidence.begin` with the `sessionId` from the scan.
 
 4. **Confirm.** Show the user what will upload — every kept file with its size
-   and your note, the transcript, and anything `beginEvidence` returned in
+   and your note, the transcript, and anything `evidence.begin` returned in
    `rejected`. This ships their local files and their entire session to a
    server; they get to see that and say no. Wait for a clear yes.
 
-5. **Upload.** Merge `beginEvidence`'s `uploads` with the `paths` map from step 3
+5. **Upload.** Merge `evidence.begin`'s `uploads` with the `paths` map from step 3
    into a plan file, then `python3 <script> upload --plan <plan>`.
 
    If anything lands in `failed`, do not decide for them. Show what failed and
@@ -926,7 +926,7 @@ Dough MCP connected:
 4. Approve, and check the proposal in Action Gateway shows both the transcript
    and the evidence file with a matching hash.
 
-If `proposals.beginEvidence` is not yet in the tool list, stop here — Tasks 1–7
+If `proposals.evidence.begin` is not yet in the tool list, stop here — Tasks 1–7
 are complete and independently testable, and this step unblocks when the
 companion plan ships.
 

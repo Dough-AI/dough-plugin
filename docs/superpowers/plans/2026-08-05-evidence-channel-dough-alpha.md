@@ -1,5 +1,16 @@
 # Proposal Evidence Channel — Dough-Alpha Implementation Plan
 
+> **SUPERSEDED — do not implement from this copy.**
+>
+> The server half is built. The authoritative, materially revised plan lives in
+> that repo at `Dough-Alpha/docs/superpowers/plans/2026-08-05-evidence-channel-dough-alpha.md`,
+> and differs from this draft in ways that matter: the tool is
+> `proposals.evidence.begin` (camelCase fails the tool-name validator), there is
+> no streaming hash verification, no `extractedText`, no `evidenceStatus` column,
+> `proposal_transcripts` is untouched, and the transcript is an ordinary evidence
+> row. This copy is kept only as the record of what was originally proposed and
+> why the review changed it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give `proposals.propose` a way to carry a session transcript and backing files that were uploaded out-of-band, so evidence never has to travel through model-generated tool arguments.

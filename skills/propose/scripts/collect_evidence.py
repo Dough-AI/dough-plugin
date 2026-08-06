@@ -231,7 +231,7 @@ def snapshot_transcript(transcript_path, into=None):
 
 
 def declare_objects(transcript_path, files, snapshot_dir=None):
-    """The exact `objects[]` array beginEvidence expects.
+    """The exact `objects[]` array proposals.evidence.begin expects.
 
     The transcript is always key "transcript"; curated files are f0, f1, ... in
     the order the agent listed them, so a manifest entry maps back to an upload.
