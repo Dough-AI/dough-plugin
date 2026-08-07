@@ -31,20 +31,18 @@ decimal places; the side of a line is `postingType`, never a negative amount).
 This plugin is pinned on disk and the catalog moves without it. A shape you
 remember from a previous session may be stale; the descriptor never is.
 
-### The rationale is the product
-Everything else is mechanical. The rationale is what a human reads to decide, and
-a proposal they cannot evaluate is one they have to reject.
+### Do not write a `rationale`
+Leave the field off. A proposal is evaluated from the entry itself, the gate
+checks, the memo, and the evidence behind it — not from an agent's account of its
+own work.
 
-Say **why this write**, and **what you based it on** — the source, the period, the
-filter. Compare:
+You must still *understand* the change to that standard. If you could not say
+which source, which period and which filter produced these numbers, you are not
+ready to propose it — ask the user rather than guessing. What changes is only that
+the answer belongs in the entry and its evidence, not in a paragraph of your prose.
 
-> ✗ "September accrual."
-> ✓ "September contractor invoices totalling $8,400.50 arrived after close.
->    Accruing so the month reflects the expense. From `bill.vendor_invoices`,
->    invoices dated 2026-09-01..30 with no matching payment."
-
-If you cannot write the second kind, you do not yet understand the change well
-enough to propose it. Ask the user rather than guessing.
+Keep the memo short: it is written into the customer's books. The descriptor for
+the action says exactly how short.
 
 ### Be honest about `proposedVia`
 It defaults to `agent`, which is the claim that assumes less. Set `human` **only**
@@ -73,7 +71,8 @@ nothing has been written yet.
 1. **Describe.** `tools.describe("proposals.propose")` for the proposable actions
    and the payload doc for the one you need.
 2. **Build the payload** to that doc.
-3. **Write the rationale.** Interview the user if you are missing the *why*.
+3. **Check you understand the *why*.** Interview the user if you do not. Do not
+   send a `rationale` — see above.
 4. **Offer an assignee** (optional). Naming an approver or reviewer is **binding**:
    only that person can act, and only they see it in their queue. Omitting it
    leaves the proposal open to anyone holding the capacity, which is usually what

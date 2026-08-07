@@ -54,7 +54,7 @@ def command_body():
         "Propose this journal entry to quickbooks (kind `journal_entry`):\n"
         "accrue the September contractor invoices in ./contractors.csv.\n"
         "Debit account id 54, credit account id 33, for the CSV's total.\n"
-        "Use txnDate 2026-09-30. Write a rationale saying what you based it on.",
+        "Use txnDate 2026-09-30.",
     )
     return body
 
@@ -273,3 +273,20 @@ def test_the_journal_entry_balances(run_agent):
     debits = sum(l["amount"] for l in lines if l["postingType"] == "Debit")
     credits = sum(l["amount"] for l in lines if l["postingType"] == "Credit")
     assert round(debits, 2) == round(credits, 2) == 8400.50
+
+
+def test_no_rationale_is_sent(run_agent):
+    """The evidence is the account of how the entry was reached. A prose summary
+    alongside it only competes with it, and `privateNote` is posted to the books
+    so it cannot absorb the overflow either."""
+    args = calls(run_agent["entries"], "proposals__propose")[0]["args"]
+    assert not args.get("rationale"), f"sent a rationale: {args.get('rationale')!r}"
+
+
+def test_the_posted_memo_stays_short(run_agent):
+    """privateNote lands in the customer's QuickBooks ledger permanently."""
+    note = calls(run_agent["entries"], "proposals__propose")[0]["args"]["payload"].get(
+        "privateNote", ""
+    )
+    print(f"\n  privateNote ({len(note)} chars): {note!r}")
+    assert len(note) <= 240, f"memo is {len(note)} chars — a paragraph reached the ledger"

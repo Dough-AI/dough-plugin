@@ -57,6 +57,11 @@ Attach the session and its evidence as well. The script lives at
    where `manifest` carries one entry per kept file — `key`, `filename`,
    `sha256`, `bytes`, `mime`, `role`, and your `note`.
 
+   **Send no `rationale`.** The evidence you just attached is the account of how
+   this entry was reached; a prose summary alongside it only competes with it.
+   Keep `privateNote` to the short memo the descriptor asks for — it is posted
+   into the customer's books.
+
    Status is derived by the server from what actually reached storage, so do not
    claim it yourself. If the call is refused with `invalid_evidence` the set was
    unknown, expired, or already used — start again from step 3. If it is refused
