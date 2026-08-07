@@ -1,0 +1,110 @@
+---
+name: uploads
+description: Use when loading user-provided data into Dough as an uploaded table — a budget, forecast, latest estimate, operating plan, sales projection, pipeline export, or anything parsed from a spreadsheet, CSV, or document — and the table's structure isn't already decided. Covers reading the implicit structure of human-formatted sources, the canonical shape for uploaded tables, reconciling parsed rows against the source's own totals before loading, and recording names, aliases, and caveats.
+---
+
+# Structuring data for upload
+
+How to get from a human-formatted source to a well-shaped `dough_uploaded`
+table. Tool mechanics (`tables.upload`, `mode`, `columnTypes`, polling) live in
+the datalake skill, section 1b — this skill decides **what shape the table
+should be** and **how to prove the parse is right** before that call.
+
+## 0. Fast path
+Already-tidy data — clean CSV, obvious grain, no summary rows mixed into
+detail — needs none of what follows: confirm column types and meaning with the
+user and upload directly. No tie-out; nothing was parsed, so there is nothing
+to reconcile. The rest of this skill is for human-formatted sources.
+
+## 1. Understand the source
+Inventory what you were given — tabs, regions within tabs, or data extracted
+from a document — and classify each region: **detail rows** (the finest grain
+present), **derived rows** (subtotals, totals, summary blocks, pivot output),
+or commentary. Detail is the data; derived figures are the verification
+targets for step 4 — collect them now, never load them.
+
+For a formatted spreadsheet or interpreted document, read
+`../references/structuring-uploads-guide.md` first — formatting cues (bold,
+blank rows, side-column section labels) carry the structure, and several
+common source pathologies will silently corrupt a naive parse.
+
+When more than one tab, region, or date range could plausibly be the source of
+truth, ask — name the candidates and let the user pick. Users routinely
+correct which tab and which period window; a wrong guess here poisons
+everything downstream.
+
+## 2. Decide the shape
+The canonical uploaded table, one row per lowest-grain dimension per period:
+
+| Column | Type | Rule |
+|---|---|---|
+| dimension hierarchy | STRING × N | One column per level, broadest → narrowest (`category`, `subcategory`, `vendor`, …). The narrowest level is the grain; every parent appears as a sibling column on every row. |
+| `period` | DATE | **End-of-month** for monthly data (`2027-01-31`, not `2027-01-01`). |
+| `amount` | FLOAT64 | Full precision, never pre-rounded. |
+| commentary | STRING | Only if the source carries commentary worth keeping. |
+
+State the grain in one sentence — "one row per vendor per month" — before
+writing any parse code. Then the rules that make tables consistent org-wide:
+
+- **Capture the source's lowest dimension level plus its full parent chain.**
+  There is no privileged "line item" — it's just the narrowest level.
+- **Only columns the source actually carries.** No invented constant columns
+  (`currency`, `scenario`, `version`) — an assumption like "USD" is a table
+  note, not a fabricated dimension.
+- **Output measures only.** If the source derives revenue = price × quantity,
+  load revenue at the lowest grain, not price and quantity. The table records
+  outcomes at a grain, not the model that produced them.
+- **Empty and zero cells are not rows.** Load the cells that hold a value.
+- **Names verbatim** at every dimension level, aligned with what the table
+  will join against — if actuals spell it `Professional Fees:Product
+  Consulting`, match it, or record the mismatch deliberately.
+- **Commentary attaches once per line item** — to its latest populated
+  period — unless the user wants it elsewhere. Never duplicate it onto every
+  row and never drop it silently.
+
+Raise structural questions as they arise, conversationally: period scope,
+exclusion rules ("leave out vendor X" — make it null-safe), and, when the data
+is one snapshot of a plan that will have successors (operating plan → latest
+estimates), the versions question: **separate table per snapshot** (immutable,
+simple, compare by joining across tables) vs. **one table with a scenario
+column** (append each snapshot, filter to compare, a missed filter silently
+mixes scenarios). Present both with trade-offs; there is no default.
+
+## 3. Parse
+Bespoke code per session — read the actual file, don't force it through a
+generic parser. Standing rules: keep full precision end to end and never round
+before aggregating; melt wide period columns into long rows; keep derived rows
+aside as verification targets; drop nothing silently.
+
+## 4. Verify — proportional to blast radius
+- **Small, simple parse** (one region, tens of rows, no interpretive calls):
+  check the grand total against the source, plus a per-period total if the
+  source shows one. Done. Don't build a reconciliation harness for a 20-row
+  budget.
+- **Full tie-out** — required for a multi-tab or multi-table session, hundreds
+  of rows, interpretive parsing (subtotal heuristics, section boundaries,
+  inferred values), or data others will build on: every derived figure
+  collected in step 1 must equal the sum of parsed detail beneath it
+  **exactly**, with row counts checked where knowable.
+
+Say which tier you're on ("small parse: verifying grand total only") so the
+user can ask for the full treatment. On failure, suspect in order: your parse
+(misclassified subtotal, dropped rows, misread section boundary), then the
+source (stale pastes, cells linked elsewhere — see the reference guide).
+Source-side failures are findings to report, not errors to absorb. A checked
+figure that neither ties nor carries the user's explicit waiver blocks the
+upload — no "close enough", no reconciling later.
+
+## 5. Upload and record
+Mechanics per datalake 1b. Conventions this skill adds:
+- Table name: BigQuery-safe (letters, numbers, underscores — no spaces,
+  hyphens, or leading digits). Put the human display name in the notes.
+- `columnTypes` declared for **every** column.
+- `tables.annotate` after load: **notes** carrying the grain, what was
+  excluded and why, source caveats found in step 4, tie-out waivers, and
+  unconfirmed assumptions (currency, draft-vs-final). Caveats live in notes,
+  never as extra data columns.
+- An **alias** only when the team has a name for this data ("the marketing
+  plan" → `marketing_plan`) — table-name-shaped (letters, numbers,
+  underscores) and different from the table's real name, or annotate rejects
+  it. If nobody has named it yet, record no alias rather than inventing one.
