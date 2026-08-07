@@ -108,6 +108,9 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
   the full name to query.
 - Ask the person for the data's types and meaning rather than inferring them — then
   record what you were told with `tables.annotate`.
+- If the source is a spreadsheet or document whose structure isn't settled —
+  summary rows mixed into detail, wide month columns, formatting that carries
+  meaning — use the **uploads** skill first to shape and verify the data.
 
 ## 2. Analyze with your own SQL
 When no calculated table or saved query fits, `integrations.query` runs read-only
