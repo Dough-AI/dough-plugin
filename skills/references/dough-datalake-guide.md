@@ -98,21 +98,73 @@ for those. These are the behaviors that surprise people:
    later append). Values are validated BEFORE the load, so a bad cell comes back
    with its row and column named. Two consequences worth knowing:
    - **An empty cell is NULL**, not an empty string.
-   - **An append must have exactly the same columns.** Order does not matter — they
-     are matched by name — and the types you declare are ignored in favour of the
-     table's own. A missing or extra column is **rejected**, not null-filled, and the
-     error names which. Money keeps full precision (`NUMERIC` holds 38 digits).
-5. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
+   - On an append, columns are matched **by name** (order is irrelevant) and the
+     types you declare are ignored in favour of the table's own. Money keeps full
+     precision (`NUMERIC` holds 38 digits).
+5. **Every upload has to say where the data came from, and what identifies a row.**
+   `sourceLabel` is **required** — the origin in words a person would recognise
+   ("FY26 budget v3, from Finance"). It is recorded against the upload and stamped
+   on every row it writes, which is what lets someone reading a number six months
+   later find the file behind it; "upload" or "data" throws that away as surely as
+   an empty field would. `sourceUrl` is optional and is stored and displayed but
+   never fetched — treat it as a claim about origin, not a verified fact.
+   `keyColumns` (e.g. `["period","cost_center"]`) is **required when `mode` is
+   `create`** and is inherited by later uploads. Dough matches rows between versions
+   on it, so a corrected value reads as a change to one row instead of a deletion
+   and an unrelated insert. Duplicate keys are rejected and a key column may never
+   be empty. You may **add** columns to the key on any upload; **removing** one is
+   allowed only during a `replace`, because a narrower key can collide with rows
+   already in the table. Widening the key onto a column the same upload is
+   introducing is likewise a `replace`, since every row already stored would have
+   no value for it.
+6. **An append does NOT have to bring exactly the table's columns — but it may not
+   add and omit in the same upload.** A brand-new column is added, and existing rows
+   simply have no value for it. A non-key column you leave out is allowed too, and
+   is empty for the rows you appended; either way the response names what changed.
+   Omitting a **key** column is always rejected. And doing both at once — bringing a
+   new column *and* dropping one — is rejected naming both sides, because that is
+   precisely what a typo produces: `regoin` for `region` is one new column plus one
+   missing one, and nothing distinguishes it from a deliberate drop-and-add. Dough
+   refuses rather than guess which you meant, so **retrying the identical payload
+   fails identically** — the fix is either to correct the header and resend, or, if
+   the rename is real, to send two uploads: the first carrying both the old and the
+   new column, the second dropping the old one.
+7. **Several files that belong in one table need one decision made before the
+   first upload, not after the first rejection.** A planning week produces one
+   extract per scenario; a monthly close produces one per month. They arrive as
+   separate files and belong in a single table.
+   - **Union the headers first, and create with all of them.** The files will not
+     agree — one scenario modelled headcount, another added a `risk_note` column
+     later. A file that omits columns the table has is fine; a file that both adds
+     one and omits one is rejected (item 6). Creating from the union means no
+     later file ever has to add anything, so that case never arises.
+   - **Expect the files to collide on the natural key.** Three scenarios of one
+     planning week carry the same periods and the same cost centres — that is what
+     makes them comparable, and it means every row of the second file duplicates a
+     row of the first under `(period, cost_center, account)`. The upload is
+     rejected. They need a discriminator column, and the important part is that it
+     is usually **not in the data at all**: "upside" is the name of a tab, not a
+     value in any column. It has to be synthesised from each file's identity and
+     added to `keyColumns`. `_dough_source` does not serve here — it records origin
+     per row, but Dough stamps it and it is not a column you can declare in a key.
+   - **Matching headers are not matching meaning.** Whether these files really are
+     one table is the person's judgement; ask before merging them.
+   - **One file per `tables.upload` call**, each with its own `sourceLabel` and
+     `sourceUrl`. Concatenating them locally would work and is the wrong move: every
+     row would then carry the same origin, and per-row provenance exists precisely so
+     that "which extract is this number from" survives the merge.
+
+8. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
    `kind:"uploaded"`; without it the tool looks at the wrong set of tables and
    reports yours as missing.
-6. **Applied mappings, `tables.create`, `tables.update` and `tables.upload` are
+9. **Applied mappings, `tables.create`, `tables.update` and `tables.upload` are
    asynchronous.** `mappings.save` with `status:"applied"` schedules a rebuild;
    the three `tables.*` writes return a `jobId` immediately. Poll `mappings.status`
    (pass the **source** table) or `tables.status`
    — the data isn't there the instant the call returns. A `<dataset>_mapped` table
    only shadows its raw source in `integrations.tables` once that rebuild has
    **succeeded**, not on a draft save.
-7. **A failed rebuild leaves the table queryable with STALE rows.** This is the
+10. **A failed rebuild leaves the table queryable with STALE rows.** This is the
    `tables.update` case to watch, and it is why failure here is not "nothing
    happened": `tables.status` reports `state: "recreate_failed"`, the table still
    exists and still answers queries, but its rows came from the **previous** build,
