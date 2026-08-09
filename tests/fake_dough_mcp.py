@@ -166,30 +166,41 @@ def data_row_count(csv_text):
     return max(len(rows) - 1, 0)
 
 
+def replay():
+    """Every event in the log, in the order it happened.
+
+    Claude Code respawns this server every turn, so nothing survives in memory —
+    the log is the only state that outlives a process, and every derived fact
+    below is rebuilt from it on demand.
+    """
+    if not LOG.exists():
+        return []
+    events = []
+    for line in LOG.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue
+    return events
+
+
 def uploaded_tables():
     """Every uploaded table's current shape AND the rows it holds, replayed from
     the log.
 
-    Claude Code respawns this server every turn, so nothing survives in memory —
-    the log is the only state that outlives a process. Each accepted upload
-    records the table's shape after it and the rows THAT upload carried; the
-    rows accumulate on an append and are discarded by a create or a replace,
-    which is what makes "is this key already in the table" answerable at all.
+    Each accepted upload records the table's shape after it and the rows THAT
+    upload carried; the rows accumulate on an append and are discarded by a
+    create or a replace, which is what makes "is this key already in the table"
+    answerable at all.
 
     Whole rows are kept rather than pre-computed key values because the key can
     widen on a later upload: the tuples to compare are not known until the
     upload that asks the question arrives.
     """
     tables = {}
-    if not LOG.exists():
-        return tables
-    for line in LOG.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
+    for event in replay():
         if event.get("kind") != "upload_result" or not event.get("accepted"):
             continue
         name = event["name"]
@@ -204,6 +215,60 @@ def uploaded_tables():
             "rowValues": held,
         }
     return tables
+
+
+# How many `tables.status` polls a load takes to land. Two, so that the first
+# poll answers "still running" and only the second reports it ready: an agent
+# told to poll UNTIL IT SUCCEEDS behaves differently from one that pings status
+# once and moves on, and with a single-poll model the two are indistinguishable.
+POLLS_TO_LAND = 2
+
+
+def polls_since_upload(name):
+    """How many times this table's status has been polled since its most recent
+    accepted upload. Resets to zero on every new upload, because each one starts
+    a load of its own."""
+    seen = 0
+    for event in replay():
+        if event.get("name") != name:
+            continue
+        if event.get("kind") == "upload_result" and event.get("accepted"):
+            seen = 0
+        elif event.get("kind") == "status_poll":
+            seen += 1
+    return seen
+
+
+def is_loading(name):
+    """Whether this table's most recent load is still running.
+
+    Answered from what the last status poll REPORTED, not by re-deriving it, so
+    that the tool which refuses an upload and the tool which tells an agent the
+    table is ready can never disagree: whatever `tables.status` last said is what
+    `tables.upload` acts on. A load nobody has polled since is still running.
+
+    A load lands after it has been POLLED, not after wall-clock time. The real
+    thing lands in a few seconds, and a fake that slept would make every test
+    slow and flaky for no gain in fidelity — what is modelled here is the
+    ORDERING rule, that a second append to one table must not be sent while the
+    first is still loading, and polling is exactly how an agent is meant to find
+    out that it has finished.
+
+    Note this is not the call counter the module docstring warns against.
+    Acceptance is still decided from state the agent can observe and act on: one
+    that polls to ready gets through, one that does not is refused, and the
+    refusal is escaped by doing the right thing rather than by trying again.
+    """
+    if name not in uploaded_tables():
+        return False
+    for event in reversed(replay()):
+        if event.get("name") != name:
+            continue
+        if event.get("kind") == "status_poll":
+            return event.get("state") != "ready"
+        if event.get("kind") == "upload_result" and event.get("accepted"):
+            return True
+    return True
 
 
 class Rejected(Exception):
@@ -341,6 +406,30 @@ def upload(args):
     # Only an append meets rows that are already there: a create has no table
     # behind it, and a replace throws the old rows away.
     if mode == "append":
+        # The check below compares against the rows already in the table, and
+        # that is only possible once the previous upload's load has finished. So
+        # this refusal sits exactly where that check would have been and stands
+        # in for it — which is also where the real tool puts it, AFTER the column
+        # rules and the within-upload key check above, so an append that is both
+        # malformed and early is told about the malformed part.
+        #
+        # Deliberately not applied to create or replace: neither compares
+        # against rows already loaded, so neither has anything to wait for. A
+        # create has no predecessor and a replace discards it.
+        #
+        # Unlike every other refusal here, this one says what to do — because
+        # unlike every other refusal here, the answer is "the same payload, in a
+        # moment". The add-and-omit rejection deliberately offers no remedy
+        # because resending is futile; here resending is the remedy, and an
+        # agent that treats this as a hard failure has lost data it was told to
+        # load.
+        if is_loading(name):
+            reject(name, mode, f'an earlier upload to "{name}" is still loading, so this '
+                               "CSV's keys could not be checked against the rows already "
+                               "in the table. Nothing was recorded and nothing was "
+                               'loaded — poll tables.status with kind:"uploaded" until it '
+                               "is ready, then send this upload again unchanged.")
+
         # Named and explained, with no remedy offered — same principle as the
         # add-and-omit refusal below it: what to DO about this is the skill's job
         # to have said in advance, and an error that hands over the fix would let
@@ -396,6 +485,31 @@ def table_status(args):
                 f'No {kind} table named "{name}" has been created. '
                 'An uploaded table needs kind:"uploaded".'
             ),
+        }
+
+    # The load lands as a CONSEQUENCE of being polled, and the poll records what
+    # it reported so that an append is accepted from exactly the moment an agent
+    # was told the table was ready. This is the only place the threshold is
+    # compared; `is_loading` reads the result rather than re-deriving it.
+    #
+    # Only a poll that could actually observe this load counts — asking with the
+    # default kind:"calculated" never finds an uploaded table and returned above,
+    # which is the documented footgun and must not advance anything.
+    landed = polls_since_upload(name) + 1 >= POLLS_TO_LAND
+    record("status_poll", tool="tables__status", name=name,
+           state="ready" if landed else "loading")
+    if not landed:
+        return {
+            "name": name,
+            "found": True,
+            "status": "running",
+            "state": "loading",
+            "inFlight": True,
+            "exists": True,
+            "table": f"{UPLOAD_DATASET}.{name}",
+            "definitionSql": None,
+            "rowCount": None,
+            "message": f"{UPLOAD_DATASET}.{name} is still loading.",
         }
     return {
         "name": name,
