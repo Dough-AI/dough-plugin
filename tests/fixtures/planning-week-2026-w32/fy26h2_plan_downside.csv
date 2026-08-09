@@ -1,0 +1,16 @@
+period,cost_center,account,amount,risk_note
+2026-07-01,Sales,Revenue,1610000.00,two enterprise renewals at risk
+2026-07-01,Sales,Payroll,-398000.00,hiring freeze from Aug
+2026-07-01,Marketing,Program Spend,-120000.00,Q3 brand campaign cut
+2026-07-01,Engineering,Payroll,-905000.00,
+2026-07-01,G&A,Payroll,-238000.00,
+2026-08-01,Sales,Revenue,1584000.00,two enterprise renewals at risk
+2026-08-01,Sales,Payroll,-398000.00,hiring freeze from Aug
+2026-08-01,Marketing,Program Spend,-120000.00,Q3 brand campaign cut
+2026-08-01,Engineering,Payroll,-905000.00,
+2026-08-01,G&A,Payroll,-238000.00,
+2026-09-01,Sales,Revenue,1522000.00,assumes no Q4 pipeline recovery
+2026-09-01,Sales,Payroll,-398000.00,hiring freeze from Aug
+2026-09-01,Marketing,Program Spend,-120000.00,Q3 brand campaign cut
+2026-09-01,Engineering,Payroll,-905000.00,
+2026-09-01,G&A,Payroll,-238000.00,

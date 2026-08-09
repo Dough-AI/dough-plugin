@@ -1,0 +1,16 @@
+period,cost_center,account,amount,headcount
+2026-07-01,Sales,Revenue,1840000.00,24
+2026-07-01,Sales,Payroll,-412000.00,24
+2026-07-01,Marketing,Program Spend,-186000.00,9
+2026-07-01,Engineering,Payroll,-905000.00,41
+2026-07-01,G&A,Payroll,-238000.00,11
+2026-08-01,Sales,Revenue,1902000.00,25
+2026-08-01,Sales,Payroll,-428500.00,25
+2026-08-01,Marketing,Program Spend,-186000.00,9
+2026-08-01,Engineering,Payroll,-931000.00,42
+2026-08-01,G&A,Payroll,-238000.00,11
+2026-09-01,Sales,Revenue,1975000.00,26
+2026-09-01,Sales,Payroll,-445000.00,26
+2026-09-01,Marketing,Program Spend,-204000.00,10
+2026-09-01,Engineering,Payroll,-957000.00,43
+2026-09-01,G&A,Payroll,-246000.00,11
