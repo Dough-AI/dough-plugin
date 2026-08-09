@@ -99,6 +99,29 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
   from then on.
 - **`mode` is required.** `create` fails if the name is taken, `append` adds rows,
   `replace` overwrites and additionally requires `confirm:true`.
+- **`sourceLabel` is required** — where the CSV came from, in words a person would
+  recognise ("FY26 budget v3, from Finance"). Recorded against the upload and
+  stamped on every row it writes, so a generic filler ("upload", "data") is worth
+  no more than the field not existing. `sourceUrl` is optional: a link to the file,
+  stored and displayed but never fetched — a claim about origin, not a verified one.
+- **`keyColumns` says what identifies one row** (`["period","cost_center"]`) and is
+  **required when `mode` is `create`**; later uploads inherit it. Dough matches rows
+  between versions on it, so an edited value reads as a change rather than a delete
+  plus an insert. Duplicate keys are rejected, and a key column may never be empty.
+  You may ADD columns to the key on any upload. REMOVING one is only allowed in a
+  `replace` (a narrower key can collide with rows already in the table) — and so is
+  widening the key onto a column this upload is introducing, since every existing
+  row would have no value for it.
+- **Columns on an `append` need not match the table.** A new column is added
+  (existing rows have no value for it); a non-key column you omit is simply empty
+  for the appended rows; the response names whatever was added or omitted. But
+  **doing both in one upload is rejected**, naming both sides — and omitting a
+  **key** column always is. Adding-plus-omitting is exactly what a mistyped header
+  looks like (`regoin` for `region`), and it is indistinguishable from a deliberate
+  drop-and-add, so Dough refuses rather than guessing: **resending the same payload
+  fails identically.** Fix the header and resend; or, if the rename is genuinely
+  intended, split it into two uploads — the first carrying both the old and the new
+  column, the second dropping the old one.
 - **Declare the column types** in `columnTypes` (`{"amount":"NUMERIC","period":"DATE"}`);
   anything you omit is `STRING`. Types are never guessed from the data, and values
   are checked against them BEFORE the load — so a stray `N/A` in an amount column
