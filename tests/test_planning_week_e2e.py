@@ -15,19 +15,22 @@ Assertions are invariants, not a transcript. A correct run may name the
 discriminator anything, order its uploads any way, poll as often as it likes and
 describe what it did however it wants — so none of that is asserted. What must
 hold is that provenance survived (one upload per file, each with its own label
-and URL), that the key gained a column no source file contains, that every row
-arrived, and that nothing was refused.
+and URL), that the key gained a column no source file contains, that each load
+was seen to finish before the next file was sent, that every row arrived, and
+that nothing was refused.
 
 ON THE ABSENCE ASSERTION. `test_no_upload_was_rejected` is the load-bearing one
 and it is also the dangerous shape: "nothing was refused" passes for free
 against a server that cannot refuse. It is only evidence because
-`tests/test_fake_mcp_rules.py` proves the fake's two refusals fire —
-specifically `test_an_append_repeating_a_key_already_in_the_table_is_rejected`,
+`tests/test_fake_mcp_rules.py` proves the fake's refusals fire — specifically
+`test_an_append_repeating_a_key_already_in_the_table_is_rejected`,
 `test_a_csv_that_repeats_a_key_internally_is_rejected`,
-`test_an_append_that_adds_and_omits_is_rejected_naming_both_sides`, and above all
-`test_the_naive_flow_over_the_real_fixture_hits_both_rejections`, which sends
-THESE THREE FILES through the obvious flow and gets refused twice. If that file
-is deleted or its rules are weakened, this test stops meaning anything.
+`test_an_append_that_adds_and_omits_is_rejected_naming_both_sides`,
+`test_an_append_sent_while_the_previous_load_runs_is_refused`, and above all
+`test_sending_the_next_file_straight_away_is_refused` and
+`test_the_naive_flow_over_the_real_fixture_hits_both_rejections`, which send
+THESE THREE FILES through the obvious flows and get refused. If that file is
+deleted or its rules are weakened, this test stops meaning anything.
 """
 
 import csv
@@ -268,6 +271,36 @@ def test_the_key_contains_a_column_no_source_file_has(run_agent):
         "distinguishes one scenario's rows from another's: "
         f"keyColumns={keys}"
     )
+
+
+def test_the_agent_waited_for_each_load_before_sending_the_next_file(run_agent):
+    """One table loads one upload at a time, so the files have to be spaced by a
+    poll, not just sent one per call.
+
+    The positive form of `test_no_upload_was_rejected` below, and worth asserting
+    separately because the two fail for different reasons: that one goes red if
+    the agent sent file 2 early, this one goes red if it never established that
+    file 1 had landed — which it could also do by pinging status once, seeing
+    "loading", and uploading anyway. What must appear between two consecutive
+    uploads is a poll that came back READY.
+    """
+    calls = accepted(run_agent["entries"])
+    polls = [
+        e for e in run_agent["entries"]
+        if e["kind"] == "status_poll" and e.get("name") == TABLE
+    ]
+    print(f"\n  status polls: {[(p['_line'], p.get('state')) for p in polls]}")
+    for previous, following in zip(calls, calls[1:]):
+        ready = [
+            p for p in polls
+            if previous["_line"] < p["_line"] < following["_line"]
+            and p.get("state") == "ready"
+        ]
+        assert ready, (
+            "sent the next file without ever seeing the previous load finish "
+            f"(upload at line {previous['_line']} → upload at line "
+            f"{following['_line']})\n" + summary(calls)
+        )
 
 
 def test_no_upload_was_rejected(run_agent):

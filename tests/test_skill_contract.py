@@ -115,3 +115,44 @@ def test_multi_file_uploads_are_documented():
             f"{where} never says to upload one file per call — concatenating gives "
             "every row the same provenance"
         )
+
+
+def test_waiting_between_files_is_documented():
+    """The third trap, and the one the docs acquired last.
+
+    An append is refused while the previous upload to that table is still
+    loading, because its keys are checked against rows that have not landed yet.
+    Uploading a file per call and sending them back-to-back is the obvious
+    reading of the section above, and it is refused on file 2 — so the section
+    has to say to wait. `tests/test_fake_mcp_rules.py` proves the refusal fires
+    for the real fixture's bytes.
+    """
+    for where, text in upload_docs().items():
+        assert "upload_in_flight" in text, (
+            f"{where} never names the upload_in_flight refusal, so an agent that "
+            "hits it has nothing to match it against"
+        )
+        assert re.search(r"still loading|finish before|one at a time", text), (
+            f"{where} never says to let a load finish before the next upload to "
+            "that table"
+        )
+
+
+def test_the_in_flight_refusal_is_documented_as_retryable():
+    """It is the ONE upload refusal that resending unchanged fixes, and it sits
+    next to the one where resending unchanged is futile. A doc that describes it
+    as a failure gets a file abandoned; one that fails to distinguish it from
+    add-and-omit gets a correct CSV edited until it is wrong.
+    """
+    for where, text in upload_docs().items():
+        # "identical payload", not just "identical": the add-and-omit rule a few
+        # lines away says a retry "fails identically", so the looser needle would
+        # match that and pass on a doc that never gave the remedy.
+        assert near(text, "upload_in_flight", "identical payload", window=700), (
+            f"{where} does not say to resend the identical payload after "
+            "upload_in_flight — without it the refusal reads as a dead end"
+        )
+        assert re.search(r"[Nn]othing (was|is) recorded", text), (
+            f"{where} never says nothing was recorded, so an agent cannot tell "
+            "whether retrying would double-load the rows"
+        )

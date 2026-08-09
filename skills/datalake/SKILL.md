@@ -128,7 +128,8 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
   comes back naming the row and column, not as a failed job later.
 - Asynchronous, like the others: poll `tables.status` with `kind:"uploaded"` (it
   defaults to `"calculated"`, which will not find an upload). The response tells you
-  the full name to query.
+  the full name to query. **One table loads one upload at a time** — see below
+  before sending a second file to the same table.
 - Ask the person for the data's types and meaning rather than inferring them — then
   record what you were told with `tables.annotate`.
 - If the source is a spreadsheet or document whose structure isn't settled —
@@ -154,6 +155,19 @@ becomes that upload's `sourceUrl`). Then, **before the first upload:**
 - **One file per `tables.upload` call**, each with its own `sourceLabel` and
   `sourceUrl`. Do not concatenate them locally — that collapses every row's origin
   into a single pointer, which is the thing per-row provenance exists to prevent.
+
+Then, sending them:
+- **Let each file's load finish before sending the next one to that table.** Poll
+  `tables.status` with `kind:"uploaded"` until it reports the table ready — a load
+  takes a few seconds — and only then upload the next file. An append sent while
+  the previous one is still loading is refused (`upload_in_flight`): its keys are
+  checked against the rows already in the table, and those rows are not there yet.
+- **That refusal is a wait, not a problem to report.** Nothing was recorded and
+  nothing was loaded; the CSV is fine. Poll until the table is ready and **send the
+  identical payload again** — it will be accepted, and its keys will be checked
+  this time. This is the exact opposite of the add-and-omit rejection above, where
+  resending unchanged fails identically: confusing the two either abandons a file
+  that was correct or keeps re-sending one that never will be.
 
 ## 2. Analyze with your own SQL
 When no calculated table or saved query fits, `integrations.query` runs read-only
