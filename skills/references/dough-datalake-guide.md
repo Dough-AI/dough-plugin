@@ -129,17 +129,42 @@ for those. These are the behaviors that surprise people:
    fails identically** — the fix is either to correct the header and resend, or, if
    the rename is real, to send two uploads: the first carrying both the old and the
    new column, the second dropping the old one.
-7. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
+7. **Several files that belong in one table need one decision made before the
+   first upload, not after the first rejection.** A planning week produces one
+   extract per scenario; a monthly close produces one per month. They arrive as
+   separate files and belong in a single table.
+   - **Union the headers first, and create with all of them.** The files will not
+     agree — one scenario modelled headcount, another added a `risk_note` column
+     later. A file that omits columns the table has is fine; a file that both adds
+     one and omits one is rejected (item 6). Creating from the union means no
+     later file ever has to add anything, so that case never arises.
+   - **Expect the files to collide on the natural key.** Three scenarios of one
+     planning week carry the same periods and the same cost centres — that is what
+     makes them comparable, and it means every row of the second file duplicates a
+     row of the first under `(period, cost_center, account)`. The upload is
+     rejected. They need a discriminator column, and the important part is that it
+     is usually **not in the data at all**: "upside" is the name of a tab, not a
+     value in any column. It has to be synthesised from each file's identity and
+     added to `keyColumns`. `_dough_source` does not serve here — it records origin
+     per row, but Dough stamps it and it is not a column you can declare in a key.
+   - **Matching headers are not matching meaning.** Whether these files really are
+     one table is the person's judgement; ask before merging them.
+   - **One file per `tables.upload` call**, each with its own `sourceLabel` and
+     `sourceUrl`. Concatenating them locally would work and is the wrong move: every
+     row would then carry the same origin, and per-row provenance exists precisely so
+     that "which extract is this number from" survives the merge.
+
+8. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
    `kind:"uploaded"`; without it the tool looks at the wrong set of tables and
    reports yours as missing.
-8. **Applied mappings, `tables.create`, `tables.update` and `tables.upload` are
+9. **Applied mappings, `tables.create`, `tables.update` and `tables.upload` are
    asynchronous.** `mappings.save` with `status:"applied"` schedules a rebuild;
    the three `tables.*` writes return a `jobId` immediately. Poll `mappings.status`
    (pass the **source** table) or `tables.status`
    — the data isn't there the instant the call returns. A `<dataset>_mapped` table
    only shadows its raw source in `integrations.tables` once that rebuild has
    **succeeded**, not on a draft save.
-9. **A failed rebuild leaves the table queryable with STALE rows.** This is the
+10. **A failed rebuild leaves the table queryable with STALE rows.** This is the
    `tables.update` case to watch, and it is why failure here is not "nothing
    happened": `tables.status` reports `state: "recreate_failed"`, the table still
    exists and still answers queries, but its rows came from the **previous** build,

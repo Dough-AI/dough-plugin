@@ -132,6 +132,26 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
 - Ask the person for the data's types and meaning rather than inferring them — then
   record what you were told with `tables.annotate`.
 
+### Several files into one table
+Scenario tabs from a planning week, monthly extracts, one file per region — the
+files must be CSV first (whatever they came from, keep each one's location; it
+becomes that upload's `sourceUrl`). Then, **before the first upload:**
+- **Take the union of every file's header, and create with all of it.** A later
+  file that omits some of those columns is fine. A later file that both adds a
+  column and omits one is rejected — and creating from the union is what stops
+  that from ever arising.
+- **Check whether the files repeat the same key.** Three scenario extracts of one
+  planning week all carry the same periods and cost centres, so under
+  `(period, cost_center)` every row of the second file collides with the first and
+  the upload is rejected. They need a discriminator — and it is usually **not in
+  the data**: "upside" lives in the tab name, not in any column. Propose a column
+  and its per-file values, add it to `keyColumns`, and confirm before uploading.
+- **Confirm the files really are one table.** Matching headers are not the same as
+  matching meaning; that judgement is the person's, not yours.
+- **One file per `tables.upload` call**, each with its own `sourceLabel` and
+  `sourceUrl`. Do not concatenate them locally — that collapses every row's origin
+  into a single pointer, which is the thing per-row provenance exists to prevent.
+
 ## 2. Analyze with your own SQL
 When no calculated table or saved query fits, `integrations.query` runs read-only
 SQL — a single `SELECT` or `WITH … SELECT` — so you can explore, join, and

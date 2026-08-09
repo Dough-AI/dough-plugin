@@ -88,3 +88,30 @@ def test_append_column_rules_are_documented():
         )
         # The remedy: split a genuine rename across two uploads.
         assert "two uploads" in text, f"{where} does not give the two-upload remedy"
+
+
+def test_multi_file_uploads_are_documented():
+    """Both traps a naive file-at-a-time flow walks into.
+
+    They are not stylistic advice — `tests/fixtures/planning-week-2026-w32/`
+    contains three real scenario extracts where each one fires: the second file
+    duplicates the first on the natural key, and the third both adds a column and
+    omits one. A skill that stops explaining either is a skill that lets an agent
+    hit them.
+    """
+    for where, text in upload_docs().items():
+        assert "union" in text.lower(), (
+            f"{where} never says to union the headers before creating — without it "
+            "a later file adds-and-omits and is rejected"
+        )
+        # The discriminator is the non-obvious half: the value distinguishing the
+        # files usually is not IN them, so the text has to say so rather than just
+        # saying "add a column".
+        assert re.search(r"not in the data|name of a tab|tab name", text), (
+            f"{where} never says the discriminator is usually absent from the data "
+            "itself, so an agent will look for a column that is not there"
+        )
+        assert "one file per" in text.lower(), (
+            f"{where} never says to upload one file per call — concatenating gives "
+            "every row the same provenance"
+        )
