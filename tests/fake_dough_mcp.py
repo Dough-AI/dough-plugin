@@ -144,17 +144,41 @@ def header_of(csv_text):
     return []
 
 
+def data_rows(csv_text):
+    """The CSV's data rows as dicts keyed by the header.
+
+    Blank lines are skipped wherever they fall, and a short row is padded, so a
+    ragged export reads the same way `data_row_count` counts it.
+    """
+    rows = [r for r in csv.reader(io.StringIO(csv_text or "")) if any(c.strip() for c in r)]
+    if not rows:
+        return []
+    header = [cell.strip() for cell in rows[0]]
+    parsed = []
+    for row in rows[1:]:
+        padded = list(row) + [""] * (len(header) - len(row))
+        parsed.append({name: (padded[i] or "").strip() for i, name in enumerate(header)})
+    return parsed
+
+
 def data_row_count(csv_text):
     rows = [r for r in csv.reader(io.StringIO(csv_text or "")) if any(c.strip() for c in r)]
     return max(len(rows) - 1, 0)
 
 
 def uploaded_tables():
-    """Every uploaded table's current shape, replayed from the log.
+    """Every uploaded table's current shape AND the rows it holds, replayed from
+    the log.
 
     Claude Code respawns this server every turn, so nothing survives in memory —
     the log is the only state that outlives a process. Each accepted upload
-    records the table's shape AFTER it, so the last such event wins.
+    records the table's shape after it and the rows THAT upload carried; the
+    rows accumulate on an append and are discarded by a create or a replace,
+    which is what makes "is this key already in the table" answerable at all.
+
+    Whole rows are kept rather than pre-computed key values because the key can
+    widen on a later upload: the tuples to compare are not known until the
+    upload that asks the question arrives.
     """
     tables = {}
     if not LOG.exists():
@@ -168,10 +192,16 @@ def uploaded_tables():
             continue
         if event.get("kind") != "upload_result" or not event.get("accepted"):
             continue
-        tables[event["name"]] = {
+        name = event["name"]
+        incoming = list(event.get("rowsData") or [])
+        held = tables[name]["rowValues"] + incoming if (
+            event.get("mode") == "append" and name in tables
+        ) else incoming
+        tables[name] = {
             "columns": list(event["columns"]),
             "keyColumns": list(event["keyColumns"]),
             "rows": event["rows"],
+            "rowValues": held,
         }
     return tables
 
@@ -188,6 +218,31 @@ def reject(name, mode, reason):
 
 def quoted(columns):
     return ", ".join(f'"{c}"' for c in sorted(columns))
+
+
+# How many offending keys a rejection names before it stops listing them. Enough
+# to see the pattern, few enough that the message stays readable.
+KEYS_NAMED = 5
+
+
+def key_of(row, keys):
+    """One row's key, as a tuple in `keyColumns` order. A column the row does not
+    carry reads as empty rather than raising — an append may legitimately omit a
+    non-key column, and this has to survive the key widening onto one later."""
+    return tuple((row.get(k) or "").strip() for k in keys)
+
+
+def named_keys(keys, tuples):
+    """The offending keys, written the way a person would have to read them back:
+    the column names alongside the values, since a bare tuple of three strings
+    says nothing about which is which."""
+    shown = [
+        "(" + ", ".join(f'{k}="{v}"' for k, v in zip(keys, values)) + ")"
+        for values in tuples[:KEYS_NAMED]
+    ]
+    if len(tuples) > KEYS_NAMED:
+        shown.append(f"and {len(tuples) - KEYS_NAMED} more")
+    return "; ".join(shown)
 
 
 def upload(args):
@@ -267,10 +322,41 @@ def upload(args):
         new_columns = table["columns"] + extra
         rows = table["rows"] + data_row_count(csv_text)
 
+    # The key has to identify one row, so it is checked LAST — after the column
+    # rules, because a key whose column is missing from the upload has already
+    # been refused above and its values could not be read here anyway.
+    incoming = data_rows(csv_text)
+    seen = {}
+    repeated = []
+    for row in incoming:
+        key = key_of(row, new_keys)
+        if key in seen and key not in repeated:
+            repeated.append(key)
+        seen[key] = True
+    if repeated:
+        reject(name, mode, f"duplicate key(s) within this upload: "
+                           f"{named_keys(new_keys, repeated)}. The key "
+                           f"{quoted(new_keys)} must identify exactly one row.")
+
+    # Only an append meets rows that are already there: a create has no table
+    # behind it, and a replace throws the old rows away.
+    if mode == "append":
+        # Named and explained, with no remedy offered — same principle as the
+        # add-and-omit refusal below it: what to DO about this is the skill's job
+        # to have said in advance, and an error that hands over the fix would let
+        # a test pass on prose that never taught it.
+        stored = {key_of(row, new_keys) for row in table["rowValues"]}
+        collisions = [key for key in seen if key in stored]
+        if collisions:
+            reject(name, mode, f"duplicate key(s) already in the table: "
+                               f"{named_keys(new_keys, collisions)}. Rows are matched on "
+                               f"{quoted(new_keys)}, so these would collide with rows "
+                               "already loaded.")
+
     added = [c for c in new_columns if not table or c not in table["columns"]]
     omitted = [c for c in new_columns if c not in columns]
     record("upload_result", tool="tables__upload", name=name, mode=mode, accepted=True,
-           columns=new_columns, keyColumns=new_keys, rows=rows)
+           columns=new_columns, keyColumns=new_keys, rows=rows, rowsData=incoming)
     message = f"Upload accepted for {UPLOAD_DATASET}.{name}."
     if mode == "append" and added:
         message += f" Columns added: {quoted(added)}."
