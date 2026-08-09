@@ -44,13 +44,19 @@ The canonical uploaded table, one row per lowest-grain dimension per period:
 | commentary | STRING | Only if the source carries commentary worth keeping. |
 
 State the grain in one sentence — "one row per vendor per month" — before
-writing any parse code. Then the rules that make tables consistent org-wide:
+writing any parse code, and declare it: the columns that identify a row are
+the upload's `keyColumns` (required on create). If parsed rows collide under
+the key your grain sentence implies, the grain statement is wrong — fix it
+before uploading, not after the rejection. Then the rules that make tables
+consistent org-wide:
 
 - **Capture the source's lowest dimension level plus its full parent chain.**
   There is no privileged "line item" — it's just the narrowest level.
-- **Only columns the source actually carries.** No invented constant columns
-  (`currency`, `scenario`, `version`) — an assumption like "USD" is a table
-  note, not a fabricated dimension.
+- **Columns come from the source — its data or its identity.** A scenario or
+  version discriminator that lives only in a tab name or file name is still
+  source data: synthesize it deliberately, name its per-file values for the
+  user, and add it to `keyColumns`. What never gets a column is an
+  assumption — currency, units, draft-vs-final; those are table notes.
 - **Output measures only.** If the source derives revenue = price × quantity,
   load revenue at the lowest grain, not price and quantity. The table records
   outcomes at a grain, not the model that produced them.
@@ -68,13 +74,20 @@ is one snapshot of a plan that will have successors (operating plan → latest
 estimates), the versions question: **separate table per snapshot** (immutable,
 simple, compare by joining across tables) vs. **one table with a scenario
 column** (append each snapshot, filter to compare, a missed filter silently
-mixes scenarios). Present both with trade-offs; there is no default.
+mixes scenarios). Present both with trade-offs; there is no default. When the
+one-table answer wins — or the data already arrives as several files that
+belong together — follow the datalake skill's **"Several files into one
+table"** section for the mechanics: create from the union of every file's
+header, put the discriminator in the key, one upload per file.
 
 ## 3. Parse
 Bespoke code per session — read the actual file, don't force it through a
 generic parser. Standing rules: keep full precision end to end and never round
 before aggregating; melt wide period columns into long rows; keep derived rows
-aside as verification targets; drop nothing silently.
+aside as verification targets; drop nothing silently. Placeholders that mean
+"no value" ("N/A", "-", "TBD") stay in the CSV and are declared as
+`nullTokens` on the upload — don't type a numeric column as STRING to force
+them through, and don't silently rewrite cells.
 
 ## 4. Verify — proportional to blast radius
 - **Small, simple parse** (one region, tens of rows, no interpretive calls):
@@ -99,7 +112,13 @@ upload — no "close enough", no reconciling later.
 Mechanics per datalake 1b. Conventions this skill adds:
 - Table name: BigQuery-safe (letters, numbers, underscores — no spaces,
   hyphens, or leading digits). Put the human display name in the notes.
-- `columnTypes` declared for **every** column.
+- `columnTypes` declared for **every** column; `keyColumns` = the grain you
+  stated in step 2.
+- `sourceLabel` (required) says where the data actually came from, in words a
+  person would recognize — the sheet, tab, or file and who keeps it ("2026
+  Operating Plan Detail tab, finance's budget sheet"), never what you did with
+  it. `sourceUrl` when the source has a location. When several files feed one
+  table, each upload carries its own label and URL.
 - `tables.annotate` after load: **notes** carrying the grain, what was
   excluded and why, source caveats found in step 4, tie-out waivers, and
   unconfirmed assumptions (currency, draft-vs-final). Caveats live in notes,
