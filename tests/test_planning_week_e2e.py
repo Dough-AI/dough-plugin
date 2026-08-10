@@ -7,7 +7,13 @@ scenario extracts of one FP&A plan that collide on their natural key and disagre
 about their columns. See `tests/fixtures/planning-week-2026-w32/README.md`, which
 is the specification for what each file is designed to surface.
 
-Opt-in, because it spends tokens:
+Every test runs once per entry skill in `ENTRY_SKILLS`. The user does not choose
+which skill opens a request like this one — the descriptions do, and this request
+matches `uploads` as squarely as `datalake`. Whichever door the agent comes
+through, the same five invariants have to hold; a rule that only exists behind
+one of them is a rule half the sessions never see.
+
+Opt-in, because it spends tokens (two agent runs, one per entry skill):
 
     DOUGH_E2E=1 .venv/bin/python -m pytest tests/test_planning_week_e2e.py -v -s
 
@@ -60,6 +66,18 @@ SOURCES = [
     ("fy26h2_plan_downside.csv", "Downside", f"{SHEET}#gid=904471553"),
 ]
 
+# BOTH DOORS INTO THIS SCENARIO.
+#
+# A user with three scenario tabs of an operating plan does not pick the skill;
+# the descriptions do. This request matches `uploads` ("operating plan ... parsed
+# from a spreadsheet, CSV, or document") at least as well as `datalake`, so the
+# multi-file rules have to survive being entered from either one. Running the
+# same invariants from each door is what tells us whether `uploads`' pointer to
+# datalake 1b is load-bearing or decorative — an agent that reads `uploads`,
+# decides the shape there, and only consults datalake for tool mechanics has
+# already chosen its key before it meets the discriminator rule.
+ENTRY_SKILLS = ["datalake", "uploads"]
+
 # The confirmation the skill asks for ("matching headers are not matching
 # meaning") is given up front, so a correct run has no reason to stop and ask.
 # Everything the agent has to work out for itself — the union of the headers,
@@ -67,7 +85,8 @@ SOURCES = [
 # is deliberately absent. Stating the grain is not a hint: it is what the person
 # actually knows, and it is the trap, since the obvious key it implies is the one
 # that collides.
-PROMPT = f"""Load the `datalake` skill and follow it.
+def prompt_for(entry):
+    return f"""Load the `{entry}` skill and follow it.
 
 Our FP&A planning week just closed and produced three scenario extracts, one per
 tab of the "FY26 H2 Plan (2026-W32)" gsheet. I've exported each tab to a CSV in
@@ -126,9 +145,10 @@ def read_log(path):
     return entries
 
 
-@pytest.fixture(scope="module")
-def run_agent(tmp_path_factory):
-    work = tmp_path_factory.mktemp("planning_week_e2e")
+@pytest.fixture(scope="module", params=ENTRY_SKILLS)
+def run_agent(request, tmp_path_factory):
+    entry = request.param
+    work = tmp_path_factory.mktemp(f"planning_week_e2e_{entry}")
     # The agent needs these as working files it can read, convert and edit, so
     # they are copied in rather than pointed at inside the repo.
     for name, _, _ in SOURCES:
@@ -155,9 +175,9 @@ def run_agent(tmp_path_factory):
 
     result = subprocess.run(
         [
-            "claude", "-p", PROMPT,
+            "claude", "-p", prompt_for(entry),
             # --plugin-dir loads this repo as a plugin, so the agent reads the
-            # real skills/datalake/SKILL.md; --strict-mcp-config keeps the run on
+            # real skills/*/SKILL.md; --strict-mcp-config keeps the run on
             # the fake rather than the live server in the plugin's .mcp.json.
             "--plugin-dir", str(REPO),
             "--mcp-config", str(mcp_config),
@@ -174,16 +194,16 @@ def run_agent(tmp_path_factory):
     )
 
     (work / "agent.txt").write_text(result.stdout, encoding="utf-8")
-    print(f"\n  run artifacts: {work}")
+    print(f"\n  entry skill: {entry}\n  run artifacts: {work}")
 
     entries = read_log(log)
     if not entries:
         pytest.fail(
-            "the agent made no MCP calls\n"
+            f"the agent (entered via `{entry}`) made no MCP calls\n"
             f"--- stdout ---\n{result.stdout[-2000:]}\n"
             f"--- stderr ---\n{result.stderr[-1000:]}"
         )
-    return {"work": work, "entries": entries, "result": result}
+    return {"work": work, "entries": entries, "result": result, "entry": entry}
 
 
 def uploads(entries):
@@ -233,7 +253,8 @@ def test_each_file_was_uploaded_on_its_own_call(run_agent):
     calls = accepted(run_agent["entries"])
     print(f"\n  accepted uploads: {summary(calls)}")
     assert len(calls) == len(SOURCES), (
-        f"expected one upload per source file ({len(SOURCES)}), got {len(calls)}\n"
+        f"entered via `{run_agent['entry']}`: expected one upload per source "
+        f"file ({len(SOURCES)}), got {len(calls)}\n"
         + summary(uploads(run_agent["entries"]))
     )
 
@@ -267,9 +288,9 @@ def test_the_key_contains_a_column_no_source_file_has(run_agent):
     print(f"\n  keyColumns: {keys}\n  source columns: {sorted(FIXTURE_COLUMNS)}"
           f"\n  synthesised: {synthesised}")
     assert synthesised, (
-        "every key column comes from a source file's header, so nothing "
-        "distinguishes one scenario's rows from another's: "
-        f"keyColumns={keys}"
+        f"entered via `{run_agent['entry']}`: every key column comes from a "
+        "source file's header, so nothing distinguishes one scenario's rows "
+        f"from another's: keyColumns={keys}"
     )
 
 
@@ -297,7 +318,8 @@ def test_the_agent_waited_for_each_load_before_sending_the_next_file(run_agent):
             and p.get("state") == "ready"
         ]
         assert ready, (
-            "sent the next file without ever seeing the previous load finish "
+            f"entered via `{run_agent['entry']}`: sent the next file without "
+            "ever seeing the previous load finish "
             f"(upload at line {previous['_line']} → upload at line "
             f"{following['_line']})\n" + summary(calls)
         )
@@ -315,8 +337,9 @@ def test_no_upload_was_rejected(run_agent):
     calls = uploads(run_agent["entries"])
     refused = [c for c in calls if not (c["outcome"] or {}).get("accepted")]
     assert not refused, (
-        f"{len(refused)} upload(s) were rejected; the union-first and "
-        "discriminator steps exist to prevent exactly this\n" + summary(calls)
+        f"entered via `{run_agent['entry']}`: {len(refused)} upload(s) were "
+        "rejected; the union-first and discriminator steps exist to prevent "
+        "exactly this\n" + summary(calls)
     )
 
 
