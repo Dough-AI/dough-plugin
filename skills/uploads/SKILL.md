@@ -44,13 +44,19 @@ The canonical uploaded table, one row per lowest-grain dimension per period:
 | commentary | STRING | Only if the source carries commentary worth keeping. |
 
 State the grain in one sentence — "one row per vendor per month" — before
-writing any parse code. Then the rules that make tables consistent org-wide:
+writing any parse code, and declare it: the columns that identify a row are
+the upload's `keyColumns` (required on create). If parsed rows collide under
+the key your grain sentence implies, the grain statement is wrong — fix it
+before uploading, not after the rejection. Then the rules that make tables
+consistent org-wide:
 
 - **Capture the source's lowest dimension level plus its full parent chain.**
   There is no privileged "line item" — it's just the narrowest level.
-- **Only columns the source actually carries.** No invented constant columns
-  (`currency`, `scenario`, `version`) — an assumption like "USD" is a table
-  note, not a fabricated dimension.
+- **Columns come from the source — its data or its identity.** A scenario or
+  version discriminator that lives only in a tab name or file name is still
+  source data: synthesize it deliberately, name its per-file values for the
+  user, and add it to `keyColumns`. What never gets a column is an
+  assumption — currency, units, draft-vs-final; those are table notes.
 - **Output measures only.** If the source derives revenue = price × quantity,
   load revenue at the lowest grain, not price and quantity. The table records
   outcomes at a grain, not the model that produced them.
@@ -70,11 +76,61 @@ simple, compare by joining across tables) vs. **one table with a scenario
 column** (append each snapshot, filter to compare, a missed filter silently
 mixes scenarios). Present both with trade-offs; there is no default.
 
+### Several files into one table
+Any group of files that belongs in one table: monthly or quarterly extracts, one
+file per region or entity, tabs of a workbook, successive snapshots of the same
+plan (the one-table answer to the versions question above, reached from the other
+direction). The rules below do not depend on which of those it is. Whatever the
+files came from — CSVs, workbook tabs, exported sheets — they must be CSV before
+they are uploaded, and each one's location travels with it as that upload's
+`sourceUrl`. Then, **before the first upload:**
+- **Take the union of every file's header, and create with all of it.** Files cut
+  from the same template still disagree: one period added a column, one region
+  tracks something the others don't. A later file that omits columns the table
+  has is fine. A later file that both adds a column and omits one is rejected —
+  and creating from the union is what stops that from ever arising.
+- **Ask whether two files can hold the same row.** Work out what makes a row
+  unique, then check whether the files partition on it or overlap. Files that
+  each cover a different slice usually partition — monthly extracts differ by a
+  `period` that is already in the data, regional files by a `region` column. Files
+  that are alternative *views of the same rows* always overlap: scenarios of one
+  plan, successive versions of one forecast, an actuals file re-exported after a
+  correction. Overlapping means every row of the second file collides with the
+  first under the key, and the upload is rejected.
+- **When they do overlap, what separates them is usually not in the data.** It
+  lives in the files' identity rather than their contents — a tab name, a filename,
+  a date stamped on the export, the workbook it came out of. So it has to be
+  synthesized: this is the from-identity column of the shape rules above. Propose
+  it and its per-file values, add it to `keyColumns`, and confirm before uploading.
+  Files that partition cleanly need none of this — don't add a discriminator that
+  earns nothing.
+- **Confirm the files really are one table.** Matching headers are not the same as
+  matching meaning; that judgement is the person's, not yours.
+- **One file per `tables.upload` call**, each with its own `sourceLabel` and
+  `sourceUrl`. Do not concatenate them locally — that collapses every row's origin
+  into a single pointer, which is the thing per-row provenance exists to prevent.
+
+Then, sending them:
+- **Let each file's load finish before sending the next one to that table.** Poll
+  `tables.status` with `kind:"uploaded"` until it reports the table ready — a load
+  takes a few seconds — and only then upload the next file. An append sent while
+  the previous one is still loading is refused (`upload_in_flight`): its keys are
+  checked against the rows already in the table, and those rows are not there yet.
+- **That refusal is a wait, not a problem to report.** Nothing was recorded and
+  nothing was loaded; the CSV is fine. Poll until the table is ready and **send the
+  identical payload again** — it will be accepted, and its keys will be checked
+  this time. This is the exact opposite of the add-and-omit rejection in datalake
+  1b, where resending the same payload fails identically: confusing the two either
+  abandons a file that was correct or keeps re-sending one that never will be.
+
 ## 3. Parse
 Bespoke code per session — read the actual file, don't force it through a
 generic parser. Standing rules: keep full precision end to end and never round
 before aggregating; melt wide period columns into long rows; keep derived rows
-aside as verification targets; drop nothing silently.
+aside as verification targets; drop nothing silently. Placeholders that mean
+"no value" ("N/A", "-", "TBD") stay in the CSV and are declared as
+`nullTokens` on the upload — don't type a numeric column as STRING to force
+them through, and don't silently rewrite cells.
 
 ## 4. Verify — proportional to blast radius
 - **Small, simple parse** (one region, tens of rows, no interpretive calls):
@@ -99,7 +155,13 @@ upload — no "close enough", no reconciling later.
 Mechanics per datalake 1b. Conventions this skill adds:
 - Table name: BigQuery-safe (letters, numbers, underscores — no spaces,
   hyphens, or leading digits). Put the human display name in the notes.
-- `columnTypes` declared for **every** column.
+- `columnTypes` declared for **every** column; `keyColumns` = the grain you
+  stated in step 2.
+- `sourceLabel` (required) says where the data actually came from, in words a
+  person would recognize — the sheet, tab, or file and who keeps it ("2026
+  Operating Plan Detail tab, finance's budget sheet"), never what you did with
+  it. `sourceUrl` when the source has a location. When several files feed one
+  table, each upload carries its own label and URL.
 - `tables.annotate` after load: **notes** carrying the grain, what was
   excluded and why, source caveats found in step 4, tie-out waivers, and
   unconfirmed assumptions (currency, draft-vs-final). Caveats live in notes,

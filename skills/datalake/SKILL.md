@@ -128,46 +128,21 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
   comes back naming the row and column, not as a failed job later.
 - Asynchronous, like the others: poll `tables.status` with `kind:"uploaded"` (it
   defaults to `"calculated"`, which will not find an upload). The response tells you
-  the full name to query. **One table loads one upload at a time** — see below
-  before sending a second file to the same table.
+  the full name to query. **One table loads one upload at a time** — an append
+  sent while the previous load is still running is refused, so a second file to
+  the same table has to wait for the first (see the uploads skill).
 - Ask the person for the data's types and meaning rather than inferring them — then
   record what you were told with `tables.annotate`.
+- **More than one file landing in one table** — scenario tabs from a planning
+  week, monthly extracts, one file per region — is decided before the first
+  upload, not discovered on the second: which header to create from, what tells
+  the files apart, and how long to wait between them. Read the **uploads** skill's
+  "Several files into one table" before sending any of them. The obvious flow —
+  create from file 1, then send 2 and 3 — is refused partway through, and by then
+  the table exists with the wrong key.
 - If the source is a spreadsheet or document whose structure isn't settled —
   summary rows mixed into detail, wide month columns, formatting that carries
   meaning — use the **uploads** skill first to shape and verify the data.
-
-### Several files into one table
-Scenario tabs from a planning week, monthly extracts, one file per region — the
-files must be CSV first (whatever they came from, keep each one's location; it
-becomes that upload's `sourceUrl`). Then, **before the first upload:**
-- **Take the union of every file's header, and create with all of it.** A later
-  file that omits some of those columns is fine. A later file that both adds a
-  column and omits one is rejected — and creating from the union is what stops
-  that from ever arising.
-- **Check whether the files repeat the same key.** Three scenario extracts of one
-  planning week all carry the same periods and cost centres, so under
-  `(period, cost_center)` every row of the second file collides with the first and
-  the upload is rejected. They need a discriminator — and it is usually **not in
-  the data**: "upside" lives in the tab name, not in any column. Propose a column
-  and its per-file values, add it to `keyColumns`, and confirm before uploading.
-- **Confirm the files really are one table.** Matching headers are not the same as
-  matching meaning; that judgement is the person's, not yours.
-- **One file per `tables.upload` call**, each with its own `sourceLabel` and
-  `sourceUrl`. Do not concatenate them locally — that collapses every row's origin
-  into a single pointer, which is the thing per-row provenance exists to prevent.
-
-Then, sending them:
-- **Let each file's load finish before sending the next one to that table.** Poll
-  `tables.status` with `kind:"uploaded"` until it reports the table ready — a load
-  takes a few seconds — and only then upload the next file. An append sent while
-  the previous one is still loading is refused (`upload_in_flight`): its keys are
-  checked against the rows already in the table, and those rows are not there yet.
-- **That refusal is a wait, not a problem to report.** Nothing was recorded and
-  nothing was loaded; the CSV is fine. Poll until the table is ready and **send the
-  identical payload again** — it will be accepted, and its keys will be checked
-  this time. This is the exact opposite of the add-and-omit rejection above, where
-  resending unchanged fails identically: confusing the two either abandons a file
-  that was correct or keeps re-sending one that never will be.
 
 ## 2. Analyze with your own SQL
 When no calculated table or saved query fits, `integrations.query` runs read-only
