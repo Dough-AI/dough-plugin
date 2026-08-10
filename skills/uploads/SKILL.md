@@ -193,18 +193,29 @@ Mechanics per datalake 1b. Conventions this skill adds:
   started at row 10 under a metadata block is invisible once the CSV is cut. This
   is the half of provenance the bytes cannot carry, so the sheet stops being one
   of several things the label might mention and becomes the thing it must.
-- When several files feed one table, each upload carries its own label and URL.
-  The workbook is the exception, because **the path `tables.source.prepare` mints
-  has the table's name inside it**:
-  - **Several tabs into ONE table: prepare once.** Three tabs of a book become
-    three uploads to the same table, so the same `objectPath` is valid on all
-    three — PUT the bytes once and pass that path each time. One stored copy,
-    three versions pointing at it.
-  - **The same book into a SECOND table: prepare again.** A path minted for
-    `fy26_plan` is refused by an upload to `headcount`, so that table gets its
-    own copy. The duplication is the point: deleting a table deletes its
-    workbooks, and one shared copy would disappear from the other table's history
-    the moment either was deleted.
+- **Send the CSV rather than retyping it** — `tables.upload.prepare` → PUT the
+  bytes → pass the path back as `csvObjectPath`. Anything you put in the inline
+  `csv` parameter you have to write out value by value, which is fine for a
+  handful of rows you are composing here and unreliable for a file: a dropped
+  comma is caught, a changed digit is not. Use `csv` only for small data with no
+  file behind it.
+- **Two prepares, opposite reuse rules.** Both mint a path with the table's name
+  inside it, so neither is accepted by an upload to a different table. What
+  differs is what happens after a successful upload, and getting it backwards
+  fails on the second file:
+  - `tables.source.prepare` (the workbook) is **kept**, so one path serves every
+    upload to that table. Three tabs of a book become three uploads — PUT the
+    bytes once and pass the same `objectPath` each time. One stored copy, three
+    versions pointing at it. The same book feeding a SECOND table is prepared
+    again, and the duplication is the point: deleting a table deletes its
+    workbooks, so a shared copy would vanish from the other table's history.
+  - `tables.upload.prepare` (the rows) is **consumed** — the upload that uses it
+    deletes it. Every file gets its own prepare, including the second and third
+    tab of the same book. Reusing a path that has already loaded gets you "not
+    found" for a file that was fine.
+  - A rejected upload does NOT consume its path. If the call was wrong (bad
+    mode, missing `keyColumns`), fix the call and re-send the same
+    `csvObjectPath` — do not upload the bytes again.
 - The workbook is **deleted with the table** — don't tell a user it survives
   independently.
 - `tables.annotate` after load: **notes** carrying the grain, what was
