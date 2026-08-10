@@ -194,10 +194,17 @@ Mechanics per datalake 1b. Conventions this skill adds:
   is the half of provenance the bytes cannot carry, so the sheet stops being one
   of several things the label might mention and becomes the thing it must.
 - When several files feed one table, each upload carries its own label and URL.
-  **Tabs of one book all attach that same book**: prepare it once and pass the
-  same `objectPath` on each upload — every version then points at the bytes it
-  actually came from. A path prepared for a *different* table is refused, so a
-  book feeding two tables is uploaded once per table.
+  The workbook is the exception, because **the path `tables.source.prepare` mints
+  has the table's name inside it**:
+  - **Several tabs into ONE table: prepare once.** Three tabs of a book become
+    three uploads to the same table, so the same `objectPath` is valid on all
+    three — PUT the bytes once and pass that path each time. One stored copy,
+    three versions pointing at it.
+  - **The same book into a SECOND table: prepare again.** A path minted for
+    `fy26_plan` is refused by an upload to `headcount`, so that table gets its
+    own copy. The duplication is the point: deleting a table deletes its
+    workbooks, and one shared copy would disappear from the other table's history
+    the moment either was deleted.
 - The workbook is **deleted with the table** — don't tell a user it survives
   independently.
 - `tables.annotate` after load: **notes** carrying the grain, what was
