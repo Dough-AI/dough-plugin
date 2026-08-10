@@ -74,11 +74,43 @@ is one snapshot of a plan that will have successors (operating plan → latest
 estimates), the versions question: **separate table per snapshot** (immutable,
 simple, compare by joining across tables) vs. **one table with a scenario
 column** (append each snapshot, filter to compare, a missed filter silently
-mixes scenarios). Present both with trade-offs; there is no default. When the
-one-table answer wins — or the data already arrives as several files that
-belong together — follow the datalake skill's **"Several files into one
-table"** section for the mechanics: create from the union of every file's
-header, put the discriminator in the key, one upload per file.
+mixes scenarios). Present both with trade-offs; there is no default.
+
+### Several files into one table
+Scenario tabs from a planning week, monthly extracts, one file per region — and
+the one-table answer to the versions question above, which is the same decision
+reached from the other direction. Whatever the files came from, they must be CSV
+before they are uploaded; keep each one's location, because it becomes that
+upload's `sourceUrl`. Then, **before the first upload:**
+- **Take the union of every file's header, and create with all of it.** A later
+  file that omits some of those columns is fine. A later file that both adds a
+  column and omits one is rejected — and creating from the union is what stops
+  that from ever arising.
+- **Check whether the files repeat the same key.** Three scenario extracts of one
+  planning week all carry the same periods and cost centres, so under
+  `(period, cost_center)` every row of the second file collides with the first and
+  the upload is rejected. They need a discriminator — and it is usually **not in
+  the data**: "upside" lives in the tab name, not in any column. This is the
+  synthesized-from-identity column of the shape rules above: propose it and its
+  per-file values, add it to `keyColumns`, and confirm before uploading.
+- **Confirm the files really are one table.** Matching headers are not the same as
+  matching meaning; that judgement is the person's, not yours.
+- **One file per `tables.upload` call**, each with its own `sourceLabel` and
+  `sourceUrl`. Do not concatenate them locally — that collapses every row's origin
+  into a single pointer, which is the thing per-row provenance exists to prevent.
+
+Then, sending them:
+- **Let each file's load finish before sending the next one to that table.** Poll
+  `tables.status` with `kind:"uploaded"` until it reports the table ready — a load
+  takes a few seconds — and only then upload the next file. An append sent while
+  the previous one is still loading is refused (`upload_in_flight`): its keys are
+  checked against the rows already in the table, and those rows are not there yet.
+- **That refusal is a wait, not a problem to report.** Nothing was recorded and
+  nothing was loaded; the CSV is fine. Poll until the table is ready and **send the
+  identical payload again** — it will be accepted, and its keys will be checked
+  this time. This is the exact opposite of the add-and-omit rejection in datalake
+  1b, where resending the same payload fails identically: confusing the two either
+  abandons a file that was correct or keeps re-sending one that never will be.
 
 ## 3. Parse
 Bespoke code per session — read the actual file, don't force it through a

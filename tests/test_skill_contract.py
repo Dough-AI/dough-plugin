@@ -20,13 +20,22 @@ def flat(path):
     return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
 
 
+def skill_1b():
+    section = re.search(r"## 1b\..*?(?=## \d)", flat(SKILL))
+    assert section, "SKILL.md no longer has a '1b.' upload section"
+    return section.group(0)
+
+
 def upload_docs():
     """Both places that document tables.upload: SKILL.md's '1b' step and the
     reference guide (whose upload rules span several numbered gotchas)."""
-    skill = flat(SKILL)
-    section = re.search(r"## 1b\..*?(?=## \d)", skill)
-    assert section, "SKILL.md no longer has a '1b.' upload section"
-    return {"SKILL.md 1b": section.group(0), "guide": flat(GUIDE)}
+    return {"SKILL.md 1b": skill_1b(), "guide": flat(GUIDE)}
+
+
+def guide_docs():
+    """The reference guide alone — for rules whose skill-level home is now the
+    uploads skill, but whose deep tool-behaviour statement stays here."""
+    return {"guide": flat(GUIDE)}
 
 
 def near(text, anchor, *needles, window=400):
@@ -98,8 +107,16 @@ def test_multi_file_uploads_are_documented():
     duplicates the first on the natural key, and the third both adds a column and
     omits one. A skill that stops explaining either is a skill that lets an agent
     hit them.
+
+    THE GUIDE ONLY. The workflow itself moved to the uploads skill, where the
+    "what tells these files apart" decision sits next to the rest of the shape
+    decisions; `tests/test_uploads_skill_contract.py` guards it there. What stays
+    here is the guide's item 7, which is the deep tool-behaviour reference both
+    skills point at and which is interleaved with items 6 and 8 that did not
+    move. `test_datalake_routes_several_files_to_the_uploads_skill` below guards
+    the seam the move created.
     """
-    for where, text in upload_docs().items():
+    for where, text in guide_docs().items():
         assert "union" in text.lower(), (
             f"{where} never says to union the headers before creating — without it "
             "a later file adds-and-omits and is rejected"
@@ -127,7 +144,7 @@ def test_waiting_between_files_is_documented():
     has to say to wait. `tests/test_fake_mcp_rules.py` proves the refusal fires
     for the real fixture's bytes.
     """
-    for where, text in upload_docs().items():
+    for where, text in guide_docs().items():
         assert "upload_in_flight" in text, (
             f"{where} never names the upload_in_flight refusal, so an agent that "
             "hits it has nothing to match it against"
@@ -144,7 +161,7 @@ def test_the_in_flight_refusal_is_documented_as_retryable():
     as a failure gets a file abandoned; one that fails to distinguish it from
     add-and-omit gets a correct CSV edited until it is wrong.
     """
-    for where, text in upload_docs().items():
+    for where, text in guide_docs().items():
         # "identical payload", not just "identical": the add-and-omit rule a few
         # lines away says a retry "fails identically", so the looser needle would
         # match that and pass on a doc that never gave the remedy.
@@ -156,3 +173,43 @@ def test_the_in_flight_refusal_is_documented_as_retryable():
             f"{where} never says nothing was recorded, so an agent cannot tell "
             "whether retrying would double-load the rows"
         )
+
+
+def test_datalake_routes_several_files_to_the_uploads_skill():
+    """The seam the move created, and the one thing that can silently rot.
+
+    Section 1b used to carry the several-files workflow itself. Now it carries a
+    pointer, and a datalake-only session handed three monthly extracts reaches
+    the rules ONLY by following it — so the pointer has to fire on the right
+    trigger. "Structure isn't settled" is not that trigger: three tidy CSVs that
+    collide on their natural key have perfectly settled structure and still walk
+    into both rejections. The route has to be keyed on there being several files
+    landing in one table.
+
+    `tests/test_planning_week_e2e.py::*[datalake]` is the behavioural half of
+    this: it drives that exact session and fails if the routing does not work in
+    practice. This test is the cheap half — it fails in 4 seconds when someone
+    edits the pointer out, instead of in 5 billed minutes.
+    """
+    section = skill_1b()
+    assert re.search(r"\*\*uploads\*\* skill", section), (
+        "datalake 1b no longer names the uploads skill at all, so nothing routes "
+        "a several-files session to the rules that moved there"
+    )
+    assert near(section, "uploads", "Several files into one table", window=400) or near(
+        section, "Several files into one table", "uploads", window=400
+    ), (
+        "datalake 1b does not name the uploads skill's multi-file section as "
+        "where to go — a bare 'see the uploads skill' makes the agent hunt"
+    )
+    # Keyed on the situation (several files, one table), not on the source being
+    # messy — the planning-week fixture is three tidy CSVs.
+    assert re.search(
+        r"([Mm]ore than one file|[Ss]everal files|[Mm]ultiple files)[^.]{0,120}"
+        r"(one table|same table|single table)",
+        section,
+    ), (
+        "datalake 1b's route to the uploads skill is not keyed on several files "
+        "landing in one table, so a session with three tidy extracts will not "
+        "recognise itself in it"
+    )
