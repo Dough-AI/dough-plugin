@@ -307,6 +307,13 @@ def test_the_rejected_payload_is_not_sent_again(run_agent):
 
     The comparison starts AT the refused call, not after it: a blind retry is a
     duplicate OF that call, so excluding it would leave nothing to duplicate.
+
+    One refusal is exempt, and only one. An upload refused because the previous
+    load to that table was still running is SUPPOSED to be sent again unchanged
+    — nothing was recorded, and the skill says so in as many words. It cannot be
+    confused with the rejection this test is about: the column rules are checked
+    first, so an add-and-omit payload is always refused for adding and omitting,
+    never for arriving early.
     """
     calls = uploads(run_agent["entries"])
     refused = rejection(calls)
@@ -314,6 +321,8 @@ def test_the_rejected_payload_is_not_sent_again(run_agent):
     after = [c for c in calls if c["_line"] >= refused["_line"]]
     seen = {}
     for call in after:
+        if "still loading" in ((call["outcome"] or {}).get("reason") or ""):
+            continue
         key = payload(call)
         assert key not in seen, (
             "resent an identical upload after it was refused "

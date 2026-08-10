@@ -153,6 +153,16 @@ for those. These are the behaviors that surprise people:
      `sourceUrl`. Concatenating them locally would work and is the wrong move: every
      row would then carry the same origin, and per-row provenance exists precisely so
      that "which extract is this number from" survives the merge.
+   - **And one at a time: let each load finish before sending the next file to
+     that table.** Poll `tables.status` with `kind:"uploaded"` until it reports the
+     table ready; a load takes a few seconds. Sent early, the next append is refused
+     as `upload_in_flight`, because its keys are checked against the rows already
+     stored and those rows have not landed yet — Dough refuses rather than accept
+     rows whose keys nothing checked, which is the same principle as item 6.
+     Nothing is recorded and nothing is loaded, so the fix is to wait and **send
+     the identical payload again**. It is the only refusal in this whole section
+     that a retry resolves: item 6's fails identically however many times it is
+     sent, and reading either one as the other loses a file or loops on it.
 
 8. **`tables.status` defaults to `kind:"calculated"`.** Polling an upload needs
    `kind:"uploaded"`; without it the tool looks at the wrong set of tables and
