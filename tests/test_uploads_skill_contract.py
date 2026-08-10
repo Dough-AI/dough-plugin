@@ -178,3 +178,45 @@ def test_the_label_must_name_the_sheet_when_a_workbook_is_attached():
         "uploads skill does not require the tab and range in sourceLabel once a "
         "workbook is attached"
     )
+
+
+def test_the_rows_are_sent_not_retyped():
+    """`csvObjectPath` is the parameter that stops a file being regenerated token
+    by token, and the skill has to name it: an agent that only knows about `csv`
+    will paste a 79-column file into a tool call, which is the failure the
+    endpoint change exists to prevent."""
+    text = flat(SKILL)
+    assert "csvObjectPath" in text, "uploads skill never mentions csvObjectPath"
+    assert "tables.upload.prepare" in text, (
+        "uploads skill names csvObjectPath but not the call that mints its path"
+    )
+
+
+def test_the_two_prepares_are_told_apart():
+    """The one thing the tool descriptions cannot say, because it only shows up
+    across two of them.
+
+    `tables.source.prepare` mints a path that is KEPT and reused across every
+    upload to a table; `tables.upload.prepare` mints one that is CONSUMED by the
+    upload that uses it. The skill teaches the workbook rule ("prepare once,
+    reuse") a section earlier, so an agent carrying that rule to the CSV fails on
+    the second file of a multi-tab load — the exact flow this skill covers.
+    """
+    text = flat(SKILL)
+    assert near(text, "consumed", "tables.upload.prepare", window=400) or near(
+        text, "tables.upload.prepare", "consumed", window=400
+    ), "uploads skill does not say the CSV path is consumed by its upload"
+    assert re.search(r"[Oo]wn prepare|prepare (?:again|per)|[Ee]very file gets its own", text), (
+        "uploads skill never says each file needs its own CSV prepare, so an agent "
+        "will reuse the workbook rule and fail on file 2"
+    )
+
+
+def test_a_rejected_upload_keeps_its_path():
+    """Retry guidance, and it is not guessable: a rejection normally means 'that
+    thing did not happen', but the bytes survive on purpose so a fixable call can
+    be re-sent without re-uploading."""
+    text = flat(SKILL)
+    assert near(text, "rejected upload", "same", window=400) or near(
+        text, "does NOT consume", "re-send", window=400
+    ), "uploads skill does not say a rejected upload leaves its csvObjectPath usable"
