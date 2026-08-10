@@ -336,3 +336,84 @@ def test_the_naive_flow_over_the_real_fixture_hits_both_rejections(fake):
     reason = refusal(shape)
     assert "missing from the upload:" in reason and "would be added" in reason
     assert '"headcount"' in reason and '"risk_note"' in reason
+
+
+# ---------------------------------------------------------------------------
+# sourceWorkbook: the refusal the xlsx e2e's success assertion rests on.
+#
+# `test_planning_week_xlsx_e2e.py` asserts the agent PREPARED a path and passed
+# that same path back. Both halves are free against a server that accepts any
+# string, so they are evidence only because the four refusals below fire.
+# ---------------------------------------------------------------------------
+
+
+def prepare(fake, table="t", name="Plan.xlsx"):
+    return fake.source_prepare({"table": table, "name": name})
+
+
+def create_with_workbook(fake, workbook, name="t"):
+    return fake.upload(
+        {
+            "name": name,
+            "csv": "period,amount\n2026-01-31,10\n",
+            "mode": "create",
+            "keyColumns": ["period"],
+            "sourceLabel": "Plan.xlsx, sheet 'Budget'",
+            "sourceWorkbook": workbook,
+        }
+    )
+
+
+def test_a_prepared_path_is_accepted(fake):
+    """The control. Without this the refusals below could be rejecting everything."""
+    prepared = prepare(fake)
+    assert prepared["objectPath"]
+    assert prepared["url"].endswith(prepared["objectPath"])
+    result = create_with_workbook(
+        fake, {"objectPath": prepared["objectPath"], "name": "Plan.xlsx"}
+    )
+    assert result["status"] == "running"
+
+
+def test_an_invented_path_is_refused(fake):
+    """The realistic failure: the agent skips prepare and writes a plausible path.
+
+    It is plausible precisely because the scheme is guessable from one example,
+    which is why the check is against paths actually minted, not against a regex.
+    """
+    with pytest.raises(fake.Rejected) as refused:
+        create_with_workbook(
+            fake,
+            {
+                "objectPath": "organizations/org_fake/uploaded-table-workbooks/t/deadbeef.xlsx",
+                "name": "Plan.xlsx",
+            },
+        )
+    assert "unknown_source_file" in refusal(refused)
+
+
+def test_a_path_prepared_for_another_table_is_refused(fake):
+    """Reuse across tables — the second-most likely mistake in a multi-table session,
+    where one workbook legitimately feeds several tables and its path looks reusable."""
+    other = prepare(fake, table="other_table")
+    with pytest.raises(fake.Rejected) as refused:
+        create_with_workbook(
+            fake, {"objectPath": other["objectPath"], "name": "Plan.xlsx"}, name="t"
+        )
+    reason = refusal(refused)
+    assert "unknown_source_file" in reason and "other_table" in reason
+
+
+def test_a_workbook_without_a_name_is_refused(fake):
+    prepared = prepare(fake)
+    with pytest.raises(fake.Rejected) as refused:
+        create_with_workbook(fake, {"objectPath": prepared["objectPath"], "name": "  "})
+    assert "`sourceWorkbook.name` is required" in refusal(refused)
+
+
+def test_omitting_the_workbook_entirely_is_still_fine(fake):
+    """It is optional, and a CSV that IS the original must not be pushed into
+    inventing one. A rule that made every upload carry a workbook would produce
+    exactly that."""
+    result = create(fake, "period,amount\n2026-01-31,10\n", ["period"], name="plain")
+    assert result["status"] == "running"

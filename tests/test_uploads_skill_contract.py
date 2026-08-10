@@ -140,3 +140,41 @@ def test_the_in_flight_refusal_is_documented_as_retryable():
         "uploads skill never says nothing was recorded, so an agent cannot tell "
         "whether retrying would double-load the rows"
     )
+
+
+def test_the_workbook_is_kept_not_just_converted():
+    """The skill must say to upload the file it parsed, and how.
+
+    `tables.source.prepare` is the whole mechanism; a skill that mentions
+    `sourceWorkbook` without naming the call that mints a path describes a field
+    the agent has no legal way to fill, and inventing a path is refused.
+    """
+    text = flat(SKILL)
+    assert "sourceWorkbook" in text, "uploads skill never mentions sourceWorkbook"
+    assert "tables.source.prepare" in text, (
+        "uploads skill names sourceWorkbook but not the call that mints its objectPath"
+    )
+
+
+def test_the_per_source_decision_lives_here():
+    """The gsheet / s3 / local-workbook judgement belongs to the skill that reads
+    sources, not to the mechanics reference. Its distinguishing feature is that a
+    source can want a URL, a workbook, both or neither — so the skill has to name
+    at least one case of each."""
+    text = flat(SKILL)
+    assert "s3://" in text, "uploads skill does not cover an s3-hosted source"
+    assert "Google Sheet" in text, "uploads skill does not cover a Google Sheet source"
+    assert near(text, "sourceWorkbook", "none", window=1600), (
+        "uploads skill never says a source may legitimately have NO workbook — a "
+        "skill that only shows the attach case pushes agents to invent one for CSVs"
+    )
+
+
+def test_the_label_must_name_the_sheet_when_a_workbook_is_attached():
+    """The half of provenance the bytes cannot carry. If this drops out, the
+    attached file silently becomes the excuse for a vaguer label."""
+    text = flat(SKILL)
+    assert near(text, "must name the tab", "range"), (
+        "uploads skill does not require the tab and range in sourceLabel once a "
+        "workbook is attached"
+    )

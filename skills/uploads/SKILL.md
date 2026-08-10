@@ -16,6 +16,11 @@ detail — needs none of what follows: confirm column types and meaning with the
 user and upload directly. No tie-out; nothing was parsed, so there is nothing
 to reconcile. The rest of this skill is for human-formatted sources.
 
+One thing the fast path does **not** skip: if the tidy data came out of a
+workbook, that workbook still goes up with it (`sourceWorkbook`, step 5). A
+clean single-sheet `.xlsx` needs no parsing decisions and is still the file the
+numbers actually live in.
+
 ## 1. Understand the source
 Inventory what you were given — tabs, regions within tabs, or data extracted
 from a document — and classify each region: **detail rows** (the finest grain
@@ -83,7 +88,9 @@ plan (the one-table answer to the versions question above, reached from the othe
 direction). The rules below do not depend on which of those it is. Whatever the
 files came from — CSVs, workbook tabs, exported sheets — they must be CSV before
 they are uploaded, and each one's location travels with it as that upload's
-`sourceUrl`. Then, **before the first upload:**
+`sourceUrl`. Converting to CSV is a step on the way, not a decision to discard
+what you converted: when the files came out of a workbook, that workbook goes up
+too (step 5). Then, **before the first upload:**
 - **Take the union of every file's header, and create with all of it.** Files cut
   from the same template still disagree: one period added a column, one region
   tracks something the others don't. A later file that omits columns the table
@@ -106,9 +113,10 @@ they are uploaded, and each one's location travels with it as that upload's
   earns nothing.
 - **Confirm the files really are one table.** Matching headers are not the same as
   matching meaning; that judgement is the person's, not yours.
-- **One file per `tables.upload` call**, each with its own `sourceLabel` and
-  `sourceUrl`. Do not concatenate them locally — that collapses every row's origin
-  into a single pointer, which is the thing per-row provenance exists to prevent.
+- **One file per `tables.upload` call**, each with its own `sourceLabel`,
+  `sourceUrl` and `sourceWorkbook`. Do not concatenate them locally — that
+  collapses every row's origin into a single pointer, which is the thing per-row
+  provenance exists to prevent.
 
 Then, sending them:
 - **Let each file's load finish before sending the next one to that table.** Poll
@@ -160,8 +168,45 @@ Mechanics per datalake 1b. Conventions this skill adds:
 - `sourceLabel` (required) says where the data actually came from, in words a
   person would recognize — the sheet, tab, or file and who keeps it ("2026
   Operating Plan Detail tab, finance's budget sheet"), never what you did with
-  it. `sourceUrl` when the source has a location. When several files feed one
-  table, each upload carries its own label and URL.
+  it. `sourceUrl` when the source has a location.
+- **Keep the file you parsed** — `sourceWorkbook`, when the file you actually
+  read in step 3 is not the CSV you are uploading. Mechanics (`tables.source.prepare`
+  → PUT → pass the `objectPath` back) are datalake guide item 5. What has to be
+  decided here is whether this source wants one at all, and that turns on two
+  independent questions — does anyone else have a **location** they can open, and
+  do you hold **original bytes** that aren't already the CSV:
+
+  | What you were given | `sourceUrl` | `sourceWorkbook` | Why |
+  |---|---|---|---|
+  | Google Sheet, exported to xlsx because you needed the formatting | the sheet's URL | the export you parsed | The live sheet keeps changing. The export is the only evidence of what it said when you read it. |
+  | Google Sheet read straight to CSV | the sheet's URL | none | The CSV *is* what you parsed, and Dough already keeps every CSV. |
+  | `s3://` or a shared drive holding a workbook | the `s3://` path | the downloaded workbook | The object can be replaced in place, and the path is often unreadable to whoever asks later. |
+  | `s3://` holding a CSV | the `s3://` path | none | Same as the second row — don't upload a copy of the CSV. |
+  | A local `.xlsx` someone sent you | none — a laptop path is not a location | the workbook | Nobody else can open `/Users/me/Downloads/plan.xlsx`. The bytes are all there is. |
+
+  Note the two middle rows: **the source's kind never decides this.** The same
+  gsheet, the same bucket, goes either way depending on what you actually parsed.
+  A source with no URL and no workbook is fine — that is a hand-built CSV, and
+  `sourceLabel` carries it alone.
+- **With a workbook attached, `sourceLabel` must name the tab and the range.** A
+  workbook cannot say which of its sheets became these rows, and a header that
+  started at row 10 under a metadata block is invisible once the CSV is cut. This
+  is the half of provenance the bytes cannot carry, so the sheet stops being one
+  of several things the label might mention and becomes the thing it must.
+- When several files feed one table, each upload carries its own label and URL.
+  The workbook is the exception, because **the path `tables.source.prepare` mints
+  has the table's name inside it**:
+  - **Several tabs into ONE table: prepare once.** Three tabs of a book become
+    three uploads to the same table, so the same `objectPath` is valid on all
+    three — PUT the bytes once and pass that path each time. One stored copy,
+    three versions pointing at it.
+  - **The same book into a SECOND table: prepare again.** A path minted for
+    `fy26_plan` is refused by an upload to `headcount`, so that table gets its
+    own copy. The duplication is the point: deleting a table deletes its
+    workbooks, and one shared copy would disappear from the other table's history
+    the moment either was deleted.
+- The workbook is **deleted with the table** — don't tell a user it survives
+  independently.
 - `tables.annotate` after load: **notes** carrying the grain, what was
   excluded and why, source caveats found in step 4, tie-out waivers, and
   unconfirmed assumptions (currency, draft-vs-final). Caveats live in notes,

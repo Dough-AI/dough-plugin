@@ -36,11 +36,14 @@ Opt-in, because it spends tokens:
 """
 
 import csv
+import hashlib
+import http.server
 import io
 import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -122,10 +125,44 @@ def build_workbook(path):
     book.save(path)
 
 
+def start_sink(received):
+    """A real PUT target, because this run actually uploads bytes.
+
+    The CSV run points the sink at a dead port: nothing there ever PUTs, so a
+    live server would prove nothing. Here the workbook genuinely travels, and a
+    dead port would make a correct agent look like a failing one.
+
+    It lives outside the MCP server process for the reason that file's docstring
+    gives — Claude Code respawns that process every turn, and a sink inside it
+    would change port mid-run, breaking every URL minted on an earlier turn.
+    """
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_PUT(self):
+            body = self.rfile.read(int(self.headers.get("content-length", 0)))
+            received[self.path.strip("/")] = {
+                "bytes": len(body),
+                "sha256": hashlib.sha256(body).hexdigest(),
+            }
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 @pytest.fixture(scope="module")
 def run_agent(tmp_path_factory):
     work = tmp_path_factory.mktemp("planning_week_xlsx_e2e")
     build_workbook(work / WORKBOOK)
+
+    put_objects = {}
+    sink = start_sink(put_objects)
+    sink_url = f"http://127.0.0.1:{sink.server_address[1]}"
 
     log = work / "calls.jsonl"
     mcp_config = work / "mcp.json"
@@ -138,7 +175,7 @@ def run_agent(tmp_path_factory):
                         "args": [str(FAKE_MCP)],
                         "env": {
                             "DOUGH_FAKE_LOG": str(log),
-                            "DOUGH_FAKE_SINK": "http://127.0.0.1:1",
+                            "DOUGH_FAKE_SINK": sink_url,
                         },
                     }
                 }
@@ -155,6 +192,7 @@ def run_agent(tmp_path_factory):
             "--allowedTools", "Bash", "Read", "Write", "Edit", "Skill",
             "mcp__dough__tables__upload",
             "mcp__dough__tables__status",
+            "mcp__dough__tables__source__prepare",
             "--permission-mode", "bypassPermissions",
         ],
         cwd=work,
@@ -173,7 +211,8 @@ def run_agent(tmp_path_factory):
             f"--- stdout ---\n{result.stdout[-2000:]}\n"
             f"--- stderr ---\n{result.stderr[-1000:]}"
         )
-    return {"work": work, "entries": entries, "result": result}
+    sink.shutdown()
+    return {"work": work, "entries": entries, "result": result, "put": put_objects}
 
 
 def test_each_tab_was_uploaded_on_its_own_call(run_agent):
@@ -271,3 +310,96 @@ def test_every_source_row_arrived(run_agent):
     assert sent == FIXTURE_ROWS, (
         f"uploaded {sent} rows, the workbook holds {FIXTURE_ROWS}\n" + summary(calls)
     )
+
+
+# ---------------------------------------------------------------------------
+# The workbook itself. Everything above this line treats the .xlsx as a
+# container to get rows out of; these treat it as the artifact to keep.
+#
+# The refusals backing these assertions are proved to fire in
+# tests/test_fake_mcp_rules.py — an invented path, a path minted for another
+# table, a nameless workbook. Without those, "the agent passed a path back"
+# would pass against a server that accepts any string at all.
+#
+# THESE FOUR DO NOT MEASURE THE SKILL TEXT, and the run that added them proved
+# it: with skills/ reverted to main and only the tool descriptions in play, all
+# four still passed. The agent reads "upload it first with tables.source.prepare"
+# off the tool itself and complies. So read a green run here as a REGRESSION
+# GUARD on the tool contract — that the prepare/PUT/pass-back loop stays workable
+# and that nothing later breaks it — and never as evidence that a change to
+# skills/ was necessary or sufficient. What the skills add beyond this is the
+# judgement the tool cannot state: which sources want a workbook at all (uploads
+# step 5's table), and that the label must still carry sheet and range. Those are
+# pinned in tests/test_uploads_skill_contract.py, which does fail against main.
+#
+# If you add an assertion here, run it once with skills/ stashed before
+# believing it. Three of this repo's e2e assertions have now turned out to pass
+# identically with and without the skill change they were written to defend.
+# ---------------------------------------------------------------------------
+
+
+def prepares(entries):
+    return [e for e in entries if e.get("kind") == "source_prepare"]
+
+
+def test_the_workbook_was_uploaded_not_just_converted(run_agent):
+    """The whole point of the change: a converted workbook must not be the end
+    of the provenance chain. Before this, the agent's own CSVs were the only
+    thing Dough kept and the book itself was discarded at the end of the run."""
+    minted = prepares(run_agent["entries"])
+    assert minted, (
+        "the agent never called tables.source.prepare, so the workbook it parsed "
+        "was discarded and only its CSVs survive"
+    )
+    assert run_agent["put"], (
+        "a path was prepared but no bytes were ever PUT to the sink — the agent "
+        "prepared an upload and then did not perform it"
+    )
+
+
+def test_the_bytes_that_landed_are_the_workbook(run_agent):
+    """Guards the failure that looks identical in the log: PUTting the CSV, or an
+    empty body, to a URL minted for the workbook."""
+    expected = hashlib.sha256((run_agent["work"] / WORKBOOK).read_bytes()).hexdigest()
+    digests = {o["sha256"] for o in run_agent["put"].values()}
+    assert expected in digests, (
+        f"none of the {len(digests)} uploaded object(s) is the workbook — "
+        "something else was sent to the prepared URL"
+    )
+
+
+def test_every_upload_carries_the_workbook_it_came_from(run_agent):
+    """One book, three tabs, three uploads: each attaches it.
+
+    Attaching it to only the first is the plausible half-measure, and it leaves
+    two of the three versions pointing at nothing.
+    """
+    calls = accepted(run_agent["entries"])
+    attached = [c["args"].get("sourceWorkbook") for c in calls]
+    print(f"\n  workbooks: {attached}")
+    assert all(attached), (
+        f"{sum(1 for a in attached if not a)} of {len(calls)} uploads carried no "
+        "sourceWorkbook"
+    )
+    minted = {e["objectPath"] for e in prepares(run_agent["entries"])}
+    for workbook in attached:
+        assert workbook["objectPath"] in minted, (
+            f"an upload passed an objectPath nobody prepared: {workbook['objectPath']}"
+        )
+
+
+def test_the_label_still_names_the_tab_now_that_a_file_is_attached(run_agent):
+    """The half of provenance the bytes cannot carry.
+
+    A workbook cannot say which of its sheets became these rows, so attaching it
+    makes the tab name MORE load-bearing, not less. The risk is an agent that
+    treats the attached file as having answered the question and falls back to
+    labelling every upload with the book's name.
+    """
+    calls = accepted(run_agent["entries"])
+    labels = [(c["args"].get("sourceLabel") or "").strip() for c in calls]
+    tabs = [tab for _, tab, _ in SOURCES]
+    for tab in tabs:
+        assert any(tab.lower() in label.lower() for label in labels), (
+            f'no sourceLabel names the tab "{tab}": {labels}'
+        )
