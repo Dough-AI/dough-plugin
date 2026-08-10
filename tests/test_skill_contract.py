@@ -213,3 +213,35 @@ def test_datalake_routes_several_files_to_the_uploads_skill():
         "landing in one table, so a session with three tidy extracts will not "
         "recognise itself in it"
     )
+
+
+ONBOARDING = ROOT / "skills" / "getting-started" / "SKILL.md"
+
+
+def test_onboarding_points_at_the_uploads_skill():
+    """The entry skill has to name both directions out of it.
+
+    It routed only to `datalake`, so an org onboarding through it met the
+    mechanics and never learned that a skill exists for the hard case. That gap
+    is silent in exactly the way this file's header describes: the agent reaches
+    a subtotal-laden workbook, follows 1b, and loads a plausible wrong table.
+    """
+    text = flat(ONBOARDING)
+    assert "`uploads`" in text, (
+        "getting-started never mentions the uploads skill, so onboarding routes "
+        "every load — tidy CSV and human-formatted workbook alike — to datalake 1b"
+    )
+    assert near(text, "`uploads`", "shape", window=500), (
+        "getting-started names the uploads skill without saying what it decides, "
+        "which gives an agent no basis for choosing it over 1b"
+    )
+
+
+def test_onboarding_still_routes_the_tidy_case_to_1b():
+    """The pointer must not overcorrect. A clean CSV needs no shape decisions, and
+    an onboarding that sends every upload through the full uploads flow would put
+    a tie-out harness in front of a 20-row budget."""
+    text = flat(ONBOARDING)
+    assert near(text, "tidy CSV", "1b", window=200), (
+        "getting-started does not say the tidy-CSV case is datalake 1b alone"
+    )

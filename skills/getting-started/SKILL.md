@@ -37,6 +37,13 @@ connected / what can I do here?"
 4. **Point the way forward.** Tell the partner they can now explore and write
    their own read-only SQL — see the `datalake` skill for the full workflow, and
    `references/dough-datalake-guide.md` for good practice and gotchas.
+   Mention the other direction too: data with no integration behind it — a
+   budget, a plan, an allocation key — can be loaded as a table. A tidy CSV is
+   `datalake` 1b and nothing more. Anything shaped for a human to read (a
+   workbook with subtotals, several monthly extracts, a pasted P&L) is the
+   **`uploads`** skill, which decides the table's shape and reconciles the parse
+   against the source's own totals before that call. An org's first upload is
+   usually the second kind, and it is the one that goes wrong silently.
 
 For exact tool inputs, call `tools.describe`. For behaviors and gotchas, read
 `../references/dough-datalake-guide.md`.
