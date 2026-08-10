@@ -77,22 +77,33 @@ column** (append each snapshot, filter to compare, a missed filter silently
 mixes scenarios). Present both with trade-offs; there is no default.
 
 ### Several files into one table
-Scenario tabs from a planning week, monthly extracts, one file per region — and
-the one-table answer to the versions question above, which is the same decision
-reached from the other direction. Whatever the files came from, they must be CSV
-before they are uploaded; keep each one's location, because it becomes that
-upload's `sourceUrl`. Then, **before the first upload:**
-- **Take the union of every file's header, and create with all of it.** A later
-  file that omits some of those columns is fine. A later file that both adds a
-  column and omits one is rejected — and creating from the union is what stops
-  that from ever arising.
-- **Check whether the files repeat the same key.** Three scenario extracts of one
-  planning week all carry the same periods and cost centres, so under
-  `(period, cost_center)` every row of the second file collides with the first and
-  the upload is rejected. They need a discriminator — and it is usually **not in
-  the data**: "upside" lives in the tab name, not in any column. This is the
-  synthesized-from-identity column of the shape rules above: propose it and its
-  per-file values, add it to `keyColumns`, and confirm before uploading.
+Any group of files that belongs in one table: monthly or quarterly extracts, one
+file per region or entity, tabs of a workbook, successive snapshots of the same
+plan (the one-table answer to the versions question above, reached from the other
+direction). The rules below do not depend on which of those it is. Whatever the
+files came from — CSVs, workbook tabs, exported sheets — they must be CSV before
+they are uploaded, and each one's location travels with it as that upload's
+`sourceUrl`. Then, **before the first upload:**
+- **Take the union of every file's header, and create with all of it.** Files cut
+  from the same template still disagree: one period added a column, one region
+  tracks something the others don't. A later file that omits columns the table
+  has is fine. A later file that both adds a column and omits one is rejected —
+  and creating from the union is what stops that from ever arising.
+- **Ask whether two files can hold the same row.** Work out what makes a row
+  unique, then check whether the files partition on it or overlap. Files that
+  each cover a different slice usually partition — monthly extracts differ by a
+  `period` that is already in the data, regional files by a `region` column. Files
+  that are alternative *views of the same rows* always overlap: scenarios of one
+  plan, successive versions of one forecast, an actuals file re-exported after a
+  correction. Overlapping means every row of the second file collides with the
+  first under the key, and the upload is rejected.
+- **When they do overlap, what separates them is usually not in the data.** It
+  lives in the files' identity rather than their contents — a tab name, a filename,
+  a date stamped on the export, the workbook it came out of. So it has to be
+  synthesized: this is the from-identity column of the shape rules above. Propose
+  it and its per-file values, add it to `keyColumns`, and confirm before uploading.
+  Files that partition cleanly need none of this — don't add a discriminator that
+  earns nothing.
 - **Confirm the files really are one table.** Matching headers are not the same as
   matching meaning; that judgement is the person's, not yours.
 - **One file per `tables.upload` call**, each with its own `sourceLabel` and
