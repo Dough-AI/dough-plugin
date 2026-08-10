@@ -108,6 +108,25 @@ for those. These are the behaviors that surprise people:
    later find the file behind it; "upload" or "data" throws that away as surely as
    an empty field would. `sourceUrl` is optional and is stored and displayed but
    never fetched — treat it as a claim about origin, not a verified fact.
+
+   **`sourceWorkbook` keeps the file you actually parsed, when that file is not the
+   CSV you are uploading** — the `.xlsx` you converted, never a second copy of the
+   CSV. Converting to CSV makes Dough's copy a derivative, and this is what puts the
+   real file back at the end of the chain. It is **independent of `sourceUrl`**: one
+   is bytes Dough holds, the other a link it only displays, and a source can want
+   either, both, or neither. Which sources want which is a judgement about the
+   source, so it lives with the skill that reads sources — **uploads, step 5**.
+
+   The mechanics: `tables.source.prepare` → PUT the bytes to the `url` it returns →
+   pass the returned `objectPath` back as `sourceWorkbook: {objectPath, name}`.
+   **There is no "complete" call** — the bytes either arrived at the path Dough
+   minted or they did not, and `tables.upload` checks. Never base64 a workbook into
+   a tool call; a 25 MB book does not fit through one and does not belong in a
+   transcript. A path with no bytes at it is **refused** (`unknown_source_file`),
+   not quietly ignored, so prepare and PUT before uploading and never reuse a path
+   from an earlier session or a different table. The workbook is **deleted with the
+   table** — it is not a file in a browser somewhere that outlives it.
+
    `keyColumns` (e.g. `["period","cost_center"]`) is **required when `mode` is
    `create`** and is inherited by later uploads. Dough matches rows between versions
    on it, so a corrected value reads as a change to one row instead of a deletion

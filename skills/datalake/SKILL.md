@@ -104,6 +104,14 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
   stamped on every row it writes, so a generic filler ("upload", "data") is worth
   no more than the field not existing. `sourceUrl` is optional: a link to the file,
   stored and displayed but never fetched — a claim about origin, not a verified one.
+- **`sourceWorkbook` keeps the file you actually parsed**, when that file is not the
+  CSV you are uploading — the `.xlsx` you converted, not a copy of the CSV. Upload it
+  with `tables.source.prepare`, PUT the bytes to the URL it returns, then pass the
+  `objectPath` back; there is no "complete" call and the bytes never go through a tool
+  call. Independent of `sourceUrl`: one is bytes Dough holds, the other is a link it
+  displays, and a source can want either, both, or neither — guide item 5 has the
+  per-source table. Name the sheet in `sourceLabel`; the file cannot say which tab
+  became these rows.
 - **`keyColumns` says what identifies one row** (`["period","cost_center"]`) and is
   **required when `mode` is `create`**; later uploads inherit it. Dough matches rows
   between versions on it, so an edited value reads as a change rather than a delete

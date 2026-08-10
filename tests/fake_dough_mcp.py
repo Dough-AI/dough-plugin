@@ -112,10 +112,42 @@ TOOLS = [
                 "keyColumns": {"type": "array", "items": {"type": "string"}},
                 "sourceLabel": {"type": "string"},
                 "sourceUrl": {"type": "string"},
+                "sourceWorkbook": {
+                    "type": "object",
+                    "description": (
+                        "Optional. The file this CSV was DERIVED FROM. Upload it with "
+                        "tables.source.prepare first and pass back the objectPath it "
+                        "returned; do not base64 the file into this call."
+                    ),
+                    "properties": {
+                        "objectPath": {"type": "string"},
+                        "name": {"type": "string"},
+                    },
+                    "required": ["objectPath", "name"],
+                },
                 "columnTypes": {"type": "object"},
                 "confirm": {"type": "boolean"},
             },
             "required": ["name", "csv", "mode", "sourceLabel"],
+        },
+    },
+    {
+        "name": "tables__source__prepare",
+        "description": (
+            "Get a URL to upload the file an uploaded table's CSV was derived from — "
+            "typically the workbook you converted. Returns a short-lived PUT url and "
+            "the objectPath it writes to; send the bytes there yourself and do NOT "
+            "base64 them into a tool call. Then pass the SAME objectPath to "
+            "tables.upload as sourceWorkbook. There is no second 'complete' call."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "table": {"type": "string", "description": "Bare table name, no dataset."},
+                "name": {"type": "string", "description": 'The file\'s name, e.g. "FY26 Plan.xlsx".'},
+                "contentType": {"type": "string"},
+            },
+            "required": ["table", "name"],
         },
     },
     {
@@ -310,6 +342,45 @@ def named_keys(keys, tuples):
     return "; ".join(shown)
 
 
+def prepared_workbook_paths():
+    """Every objectPath this server has ever minted, replayed from the log.
+
+    The real server can HEAD the object to see whether the bytes arrived. This
+    one cannot see the sink at all, so it checks the half it CAN know: that the
+    path came from a prepare call rather than from the agent's imagination. That
+    is the failure this refusal exists to catch — a path invented, guessed from
+    the pattern, or carried over from another table.
+    """
+    return {
+        event["objectPath"]: event["table"]
+        for event in replay()
+        if event.get("kind") == "source_prepare"
+    }
+
+
+def source_prepare(args):
+    """Mint a PUT url and the path it writes to. One call, no 'complete'."""
+    table = (args.get("table") or "").strip()
+    name = (args.get("name") or "").strip()
+    if not table:
+        raise Rejected("tables.source.prepare rejected: `table` is required.")
+    if not name:
+        raise Rejected("tables.source.prepare rejected: `name` is required.")
+
+    extension = name.rsplit(".", 1)[-1] if "." in name else "bin"
+    object_path = f"organizations/org_fake/uploaded-table-workbooks/{table}/{uuid.uuid4().hex}.{extension}"
+    record("source_prepare", table=table, name=name, objectPath=object_path)
+    return {
+        "url": f"{SINK}/{object_path}",
+        "requiredHeaders": {"content-type": args.get("contentType") or "application/octet-stream"},
+        "objectPath": object_path,
+        "message": (
+            "PUT the bytes to `url`, then pass `objectPath` to tables.upload as "
+            "sourceWorkbook. There is no second call."
+        ),
+    }
+
+
 def upload(args):
     """The real add/omit/key rules, decided from the arguments alone.
 
@@ -331,6 +402,21 @@ def upload(args):
         reject(name, mode, "`sourceLabel` is required — say where this data came from.")
     if not columns:
         reject(name, mode, "the CSV has no header row.")
+
+    workbook = args.get("sourceWorkbook")
+    if workbook:
+        path = (workbook.get("objectPath") or "").strip()
+        prepared = prepared_workbook_paths()
+        if path not in prepared:
+            reject(name, mode, "unknown_source_file — no file was prepared at that "
+                               "objectPath. Call tables.source.prepare, PUT the bytes "
+                               "to the url it returns, then pass back the objectPath "
+                               "it gave you.")
+        if prepared[path] != name:
+            reject(name, mode, f"unknown_source_file — that objectPath was prepared for "
+                               f'table "{prepared[path]}", not "{name}".')
+        if not (workbook.get("name") or "").strip():
+            reject(name, mode, "`sourceWorkbook.name` is required — name the file.")
 
     tables = uploaded_tables()
     table = tables.get(name)
@@ -445,7 +531,9 @@ def upload(args):
     added = [c for c in new_columns if not table or c not in table["columns"]]
     omitted = [c for c in new_columns if c not in columns]
     record("upload_result", tool="tables__upload", name=name, mode=mode, accepted=True,
-           columns=new_columns, keyColumns=new_keys, rows=rows, rowsData=incoming)
+           columns=new_columns, keyColumns=new_keys, rows=rows, rowsData=incoming,
+           sourceLabel=source_label, sourceUrl=(args.get("sourceUrl") or "").strip(),
+           sourceWorkbook=workbook or None)
     message = f"Upload accepted for {UPLOAD_DATASET}.{name}."
     if mode == "append" and added:
         message += f" Columns added: {quoted(added)}."
@@ -552,6 +640,9 @@ def call_tool(name, args):
             "waitingOn": "any approver",
             "url": "https://example.invalid/action-gateway/proposals/test",
         }
+
+    if name == "tables__source__prepare":
+        return source_prepare(args)
 
     if name == "tables__upload":
         return upload(args)

@@ -21,6 +21,12 @@ These cues survive in xlsx and die in CSV export — when both exist, parse the
 xlsx. Load with `openpyxl` twice: `data_only=True` for values, default for
 formulas (see next entry).
 
+And **keep the xlsx you parsed**: upload it with the table as `sourceWorkbook`
+(uploads step 5). Everything in this file is an argument that the workbook holds
+structure the CSV cannot — which makes shipping only the CSV a decision to
+destroy the evidence for every judgement call you are about to make. Whoever
+re-checks a number later needs the same bold rows and formula ranges you had.
+
 ## Formula ranges encode group membership
 A subtotal cell like `=SUM(C6:C12)` is the sheet author telling you exactly
 which rows belong to that group. After assigning detail rows to categories/
