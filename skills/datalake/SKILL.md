@@ -203,5 +203,8 @@ Choose by how people will use it:
   already in use, or matching a real table's name, is rejected. An omitted field
   is left unchanged; a provided one replaces the stored value. Record what you
   were **told**, not what you inferred — ask before writing a guess.
+- **A page the team can open → the `dashboard` skill.** Saved queries are what a
+  dashboard is built from: each widget names one. Build the queries here, then
+  use that skill for form, density and the refresh loop.
 - These become the calculated tables and saved queries that the **reuse-first**
   step at the top should find next time — so name them clearly.
