@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Dough plugins for Claude Code.",
-    "version": "0.15.0"
+    "version": "0.16.0"
   },
   "plugins": [
     {
       "name": "dough",
       "source": "./",
-      "version": "0.15.0",
+      "version": "0.16.0",
       "description": "Build and run Dough datalake analyses from Claude Code: explore your data lake, write read-only SQL, enrich with dimension mappings, materialize calculated tables, and build dashboards your team can open at a URL."
     }
   ]

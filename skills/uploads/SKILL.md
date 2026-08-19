@@ -19,7 +19,8 @@ to reconcile. The rest of this skill is for human-formatted sources.
 One thing the fast path does **not** skip: if the tidy data came out of a
 workbook, that workbook still goes up with it (`sourceWorkbook`, step 5). A
 clean single-sheet `.xlsx` needs no parsing decisions and is still the file the
-numbers actually live in.
+numbers actually live in — and if your `sourceLabel` names it, the upload is
+refused without it.
 
 ## 1. Understand the source
 Inventory what you were given — tabs, regions within tabs, or data extracted
@@ -171,10 +172,23 @@ Mechanics per datalake 1b. Conventions this skill adds:
   it. `sourceUrl` when the source has a location.
 - **Keep the file you parsed** — `sourceWorkbook`, when the file you actually
   read in step 3 is not the CSV you are uploading. Mechanics (`tables.source.prepare`
-  → PUT → pass the `objectPath` back) are datalake guide item 5. What has to be
-  decided here is whether this source wants one at all, and that turns on two
-  independent questions — does anyone else have a **location** they can open, and
-  do you hold **original bytes** that aren't already the CSV:
+  → PUT → pass the `objectPath` back) are datalake guide item 5.
+
+  **This is now ENFORCED, not advised.** A `sourceLabel` naming a `.xls`, `.xlsx`,
+  `.xlsm`, `.xlsb`, `.xltx`, `.xltm`, `.tsv`, `.ods`, `.numbers`, `.pdf` or `.docx`
+  is REJECTED unless `sourceWorkbook` carries that file. Naming a `.csv` needs
+  nothing — Dough already keeps every CSV you upload, byte for byte. The check reads
+  your label literally and cannot tell a file you PARSED from one you merely CITED,
+  so a label mentioning a spec document you followed is refused too; drop the name
+  if the rows did not come out of it.
+
+  Do not respond to a rejection by editing the file name out of the label. That
+  passes, and it is the one outcome the rule exists to prevent — a history whose
+  provenance was quietly downgraded to get an upload through. Send the file.
+
+  What still needs deciding is whether a source wants a `sourceUrl` too, and that
+  turns on two independent questions — does anyone else have a **location** they can
+  open, and do you hold **original bytes** that aren't already the CSV:
 
   | What you were given | `sourceUrl` | `sourceWorkbook` | Why |
   |---|---|---|---|
@@ -187,7 +201,8 @@ Mechanics per datalake 1b. Conventions this skill adds:
   Note the two middle rows: **the source's kind never decides this.** The same
   gsheet, the same bucket, goes either way depending on what you actually parsed.
   A source with no URL and no workbook is fine — that is a hand-built CSV, and
-  `sourceLabel` carries it alone.
+  `sourceLabel` carries it alone, provided the label names no file Dough would
+  then have nothing behind.
 - **With a workbook attached, `sourceLabel` must name the tab and the range.** A
   workbook cannot say which of its sheets became these rows, and a header that
   started at row 10 under a metadata block is invisible once the CSV is cut. This
