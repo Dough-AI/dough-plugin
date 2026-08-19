@@ -48,14 +48,26 @@ Sum the categories, compare to the unrolled total, and say so.
 question. This is authoring judgement, not something the tools will refuse; the
 schema will happily store a spec whose chart is illegible.
 
-`size.cols` (a span out of 12, 2–12) reaches the renderer and sets the chart's
-geometry. A narrow widget draws a narrow chart, so give a dense series room.
+`size.cols` (a span out of 12, 2–12) sets the widget's width in the grid, and the
+chart sizes itself to that. A narrow widget draws a narrow chart, so give a dense
+series room.
 
-### Never put a rate and a currency on the same axis
-A `line` widget has one `valueFormat` for all of its series, so revenue in USD and
-gross margin in percent cannot share one. Even where you could force it, don't:
-one series flattens to a line on the floor. Put the rate in its own `percent` stat
-tile or its own chart beside the currency one.
+### A rate and a currency go on TWO axes, never one
+Revenue in USD and gross margin in percent on a single scale flattens one of them
+to a line on the floor. Declare a second axis instead — `axes.right` — and put the
+rate on it with `axis: "right"`. This is the most common FP&A chart there is:
+dollars left, a rate right.
+
+The schema will only let you do it when the two axes measure genuinely different
+things: **`axes.left.unit` and `axes.right.unit` must differ.** `"USD"` against
+`"%"` is fine; `"USD"` against `"USD"` is rejected, because two comparable
+quantities on two scales is how a chart manufactures a correlation that isn't
+there. `"USD"` against `"EUR"` is fine — different units, honestly different
+things.
+
+One constraint worth knowing before it rejects you: **a right axis needs
+`orientation: "vertical"`.** Horizontal orientation puts the numeric scale on the
+x-axis, so there is no second numeric axis to declare.
 
 ### A ratio total is recomputed from its parts, never summed
 On twelve real months of one org's P&L, gross profit ÷ revenue over the whole
@@ -118,19 +130,67 @@ update**: send only the fields you are changing, so a rename does not need the
 spec resent. The vocabulary:
 
 - **Stat tiles** — `number`, `currency`, `percent`: a `valueColumn`, optional
-  `decimals`, `caption`, `rowSelector`, and a `delta` against the previous row.
-- **`line`** — `xColumn`, 1–4 `series` (each a `column`, `label` and `tone`), a
-  `valueFormat`, `yBaseline`.
-- **`bar`** — `labelColumn`, `valueColumn`, `valueFormat`, and an optional `tail`
-  naming the row that is a rolled-up remainder (`{ "label": "All other" }`), which
-  the renderer sets apart from the real categories.
+  `decimals`, `caption`, `rowSelector`, a `delta` against the previous row, and an
+  optional **`spark`** (`{ "column": "revenue", "mark": "line" }`, or `area` /
+  `bar`) drawing the whole series as a shape under the headline figure.
+- **`cartesian`** — one member covering every chart. A `category` axis, an `axes`
+  object, and 1–6 `series`, each with its own `mark`. See below.
 - **`table`** — `columns` (each with an optional `format`) and `totals`.
+
+### `cartesian` — one member, many charts
+There is no `line` or `bar` viz type. A chart is a category axis plus series, and
+each series names its own **`mark`**: `bar`, `line`, `area` or `scatter`. Mixing
+them in one chart is how you get a combo chart.
+
+```jsonc
+"viz": {
+  "type": "cartesian",
+  "orientation": "vertical",          // "horizontal" ranks categories down the side
+  "category": { "column": "month", "format": { "type": "month" } },
+  "axes": {
+    "left":  { "format": { "type": "currency", "currency": "USD", "decimals": 0 }, "unit": "USD" },
+    "right": { "format": { "type": "percent", "decimals": 1 }, "unit": "%" }
+  },
+  "series": [
+    { "column": "revenue", "mark": "bar",  "label": "Revenue",      "tone": "accent" },
+    { "column": "margin",  "mark": "line", "label": "Gross margin", "tone": "ochre", "axis": "right" }
+  ],
+  "yBaseline": "zero"
+}
+```
+
+What each series can carry beyond `column` / `mark` / `label` / `tone`:
+
+| Field | Does |
+|---|---|
+| `axis` | `"left"` (default) or `"right"` |
+| `stackId` | series sharing one id stack together |
+| `columns: [lo, hi]` | a banded range instead of `column` — a forecast envelope. `area` or `bar` only |
+| `transform` | `"cumulative"` (running total) or `"waterfall"` (a bridge) |
+| `colorBy: "sign"` | colour each bar by whether its value is positive or negative — a variance chart |
+
+And on the chart itself: **`stackOffset`** (`"expand"` for a 100% stack,
+`"sign"` for positives up and negatives down) and **`references`** — fixed lines
+for a target, a covenant threshold, a runway floor, each naming its `axis`.
+
+**A waterfall needs a total row.** The transform anchors any row whose
+**`is_total`** column is true, drawing it from zero instead of continuing the
+running figure. Without that column your bridge has no closing bar.
 
 Rules the schema enforces, worth knowing before it rejects you:
 
 - Anything `currency` needs a 3-letter uppercase code (`"USD"`).
-- `tone` is an **enum** — `accent`, `accent-mid`, `accent-pale`, `muted` — never a
-  colour string. The renderer resolves it.
+- `tone` is an **enum** — `accent`, `bronze`, `steel`, `ochre`, `sky`, `sand` —
+  never a colour string. The renderer resolves it. Use them in that order:
+  `accent` is the actual or current series, `steel` is the comparison (budget,
+  prior year), the rest extend the set.
+- **`sky` and `sand` are fills only.** At 2.12:1 and 1.5:1 against the card they
+  are invisible as a 2px stroke, so the schema rejects them on a `line` mark. As
+  an `area` or `bar` fill they read fine.
+- **Two series may not share a tone.** That is not a colour choice, it is an
+  unreadable chart.
+- On a waterfall or a `colorBy: "sign"` series the per-bar colour comes from the
+  data, not from `tone` — but `tone` is still **required**, so set it anyway.
 - Titles and labels may not contain `< > { } \`. They are model-authored text that
   reaches a shared page.
 - Widget ids are lowercase (`gross_margin`), unique within the dashboard.
@@ -193,6 +253,12 @@ at the real page while you are still shaping it.
   id** (`dashboards.save` is a partial update, so replacing the spec or dropping a
   widget is one call), or the person deletes it in the app.
 - **Rename is available**: `dashboards.save` with `id` and `name`.
+- **A person can change a chart's colours just by asking.** There is no colour
+  picker in the app; `tone` only ever comes from the spec. So "make budget the
+  pale one" or "use the muted tone for prior year" is a request you act on — read
+  the spec back with `dashboards.get`, change the tones, and `dashboards.save` it.
+  Say so when you hand over the URL, because nothing on the page suggests it is
+  possible.
 - **Editing a saved query is the likelier break.** `queries.save` over MCP does
   **not** warn you that a dashboard reads that query — that check exists on the web
   page, not on the tool. Rename or drop a column and every widget naming it turns
