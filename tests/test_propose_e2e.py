@@ -275,12 +275,28 @@ def test_the_journal_entry_balances(run_agent):
     assert round(debits, 2) == round(credits, 2) == 8400.50
 
 
-def test_no_rationale_is_sent(run_agent):
-    """The evidence is the account of how the entry was reached. A prose summary
-    alongside it only competes with it, and `privateNote` is posted to the books
-    so it cannot absorb the overflow either."""
+def test_a_rationale_is_sent(run_agent):
+    """Inverted deliberately — this asserted the opposite until 0.17.0.
+
+    The old rule said the attached evidence WAS the account of how the entry was
+    reached, so a rationale alongside it only competed with it. That rested on
+    the queue page rendering the two as one wall of text; it renders them
+    distinctly, so the reason was never true. Evidence shows what the numbers
+    came from, the rationale says why this write, and an approver handed neither
+    has only the amounts — `privateNote` cannot absorb it, being posted to the
+    books.
+
+    The length floor is what makes this more than a presence check: "September
+    accrual." satisfies a non-empty assertion and tells an approver nothing.
+    """
     args = calls(run_agent["entries"], "proposals__propose")[0]["args"]
-    assert not args.get("rationale"), f"sent a rationale: {args.get('rationale')!r}"
+    rationale = args.get("rationale") or ""
+    print(f"\n  rationale ({len(rationale)} chars): {rationale!r}")
+    assert rationale, "sent no rationale — the approver has only the payload"
+    assert len(rationale) >= 60, (
+        f"rationale is {len(rationale)} chars — too short to say what this was "
+        f"based on: {rationale!r}"
+    )
 
 
 def test_the_posted_memo_stays_short(run_agent):

@@ -245,3 +245,135 @@ def test_onboarding_still_routes_the_tidy_case_to_1b():
     assert near(text, "tidy CSV", "1b", window=200), (
         "getting-started does not say the tidy-CSV case is datalake 1b alone"
     )
+
+
+PROPOSE = ROOT / "skills" / "propose" / "SKILL.md"
+PROPOSE_COMMAND = ROOT / "commands" / "propose.md"
+
+
+def propose_description():
+    """The `description:` line of the propose skill's frontmatter.
+
+    Its own line in the file, and the highest-leverage string in the repo: it
+    decides whether the skill LOADS. Everything below it is unreachable to an
+    agent whose situation never matched this.
+    """
+    text = PROPOSE.read_text(encoding="utf-8")
+    match = re.search(r"^description:(.*?)^---$", text, re.MULTILINE | re.DOTALL)
+    assert match, "propose/SKILL.md frontmatter has no description:"
+    return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def test_the_trigger_is_not_scoped_to_one_product():
+    """The failure this guards is silent and total.
+
+    An agent in a NetSuite-only org reading a QuickBooks-only trigger never
+    matches it, never loads the skill, tells the human "you'll need to book this
+    by hand" — and the proposal is never raised. Nothing downstream can recover
+    it, because nothing downstream ran.
+
+    Named products are allowed and help matching; naming ONE is the defect. The
+    assertion is conditional rather than a required list so that adding a third
+    target does not mean editing this test.
+    """
+    text = propose_description()
+    named = [p for p in ("QuickBooks", "NetSuite") if p in text]
+    assert len(named) != 1, (
+        f"the trigger names {named[0]} and no other product — an org on a "
+        "different system will not recognise itself in it. Name the others too, "
+        "or name none and describe the act."
+    )
+
+
+def test_the_trigger_is_not_scoped_to_journal_entries():
+    """The larger half of the same defect, and the one `grep -i quickbooks`
+    cannot see.
+
+    22 of the 24 currently proposable actions are not journal entries — they
+    create and edit accounts, customers, vendors, items, invoices and transfers.
+    A trigger whose every act noun is ledger-shaped ("journal entry", "accrual",
+    "reclass") does not fire for "create that expense account" on the SHIPPED
+    QuickBooks catalog, let alone for a purchase order later.
+    """
+    text = propose_description()
+    # Word boundaries, not substrings: "account" otherwise matches inside
+    # "accounting system" and passes on the very text this exists to reject,
+    # and a bare "po" matches inside "proposal".
+    others = re.findall(
+        r"\b(accounts?|customers?|vendors?|items?|invoices?|purchase orders?|POs?)\b",
+        text,
+    )
+    assert others, (
+        "the trigger names no act beyond a journal entry, so it will not fire "
+        "for the 22 proposable actions that are not one"
+    )
+
+
+def test_the_trigger_keeps_the_by_hand_clause():
+    """The one trigger that survives a new target.
+
+    Product names and act nouns both go stale as the catalog grows, and this
+    file ships PINNED — a customer's disk keeps whatever list shipped with it.
+    "About to tell someone to do it by hand" needs no maintenance and fires on
+    a system nobody had heard of when this was written.
+    """
+    assert re.search(r"by hand", propose_description(), re.I), (
+        "the trigger lost its 'by hand' clause — the only part of it that "
+        "still fires for a target added after this version shipped"
+    )
+
+
+def test_the_trigger_is_not_scoped_to_an_accounting_system():
+    """Category, not just acts. `create_invoice` and a future purchase order are
+    writes to a system of record; "accounting system" is the narrower reading an
+    agent can use to rule the skill out."""
+    assert "accounting system" not in propose_description().lower(), (
+        "the trigger scopes itself to an 'accounting system', which reads as "
+        "the ledger and excludes the procurement and billing writes"
+    )
+
+
+def test_the_skill_does_not_suppress_the_rationale():
+    """`rationale` is what the approver decides FROM, and it is never posted.
+
+    The skill told the agent to leave it off, on the reasoning that attached
+    evidence says the same thing twice on the queue page. The queue renders both
+    distinctly, so the premise was wrong — and the skill's own flow makes
+    evidence optional, so following the rule could leave an approver holding a
+    payload, a 240-char ledger memo, and nothing else.
+    """
+    text = flat(PROPOSE)
+    assert "Do not write a `rationale`" not in text, (
+        "SKILL.md still tells the agent to suppress the rationale"
+    )
+    assert not re.search(r"[Dd]o not send a `?rationale`?", text), (
+        "SKILL.md still tells the agent not to send a rationale"
+    )
+    assert near(text, "rationale", "based it on", window=600), (
+        "SKILL.md does not tell the agent what a rationale must contain — "
+        "'why this write, and what you based it on' is the standard"
+    )
+
+
+def test_the_command_does_not_suppress_the_rationale():
+    """Same rule, second home. The command is the path that ALWAYS attaches
+    evidence, so it is where the 'the evidence says it already' reasoning was
+    most plausible — and it is still wrong, because its own tail lets the user
+    proceed without evidence."""
+    text = flat(PROPOSE_COMMAND)
+    assert "Send no `rationale`" not in text, (
+        "commands/propose.md still tells the agent to send no rationale"
+    )
+
+
+def test_the_posted_memo_is_still_ring_fenced():
+    """The half of the rationale change that was right independently.
+
+    `privateNote` and a NetSuite line `memo` are written into the customer's
+    books permanently. Restoring the rationale must not reopen the memo as the
+    place to explain yourself — those are opposite fields with opposite audiences.
+    """
+    text = flat(PROPOSE)
+    assert near(text, "memo", "short", window=300), (
+        "SKILL.md no longer says to keep the posted memo short"
+    )
