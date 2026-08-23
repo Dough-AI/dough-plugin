@@ -1,6 +1,6 @@
 ---
 name: propose
-description: Use when something needs to be WRITTEN to a connected accounting system — booking a journal entry, an accrual, a reclass, a correcting or adjusting entry in QuickBooks — or any time you are about to tell someone to go and make an entry by hand. Raises the change for human approval instead of performing it; nothing reaches the books until a person approves.
+description: Use when something needs to be WRITTEN to a system Dough is connected to — creating or editing an account, a customer, a vendor or an item; raising an invoice, a transfer, a purchase order or a journal entry; an accrual, a reclass, a correcting or adjusting entry — or any time you are about to tell someone to go and make that change by hand in QuickBooks, NetSuite or whatever system they use. Raises the change for human approval instead of performing it; nothing is written until a person approves.
 ---
 
 # Proposing a write
@@ -16,33 +16,55 @@ see what the numbers came from. Prefer it when the reasoning matters. The bytes
 travel out of band — never paste file contents into the tool call.
 
 **The moment this applies:** you have worked out a change and are about to say
-"you'll need to book this in QuickBooks". Propose it instead. Telling a person to
-retype numbers you already have is the failure this replaces — they will retype
-them slightly wrong, and nothing records why the entry was made.
+"you'll need to make this one by hand" — in QuickBooks, in NetSuite, wherever the
+record lives. Propose it instead. Telling a person to retype numbers you already
+have is the failure this replaces — they will retype them slightly wrong, and
+nothing records why the entry was made.
 
 ## Working rules
 
 ### Ask the server what is proposable — never assume
 Your first call is `tools.describe("proposals.propose")`. It returns the
 `(target, kind)` pairs that can be proposed **right now** and documents each
-payload, including rules you would otherwise get wrong (amounts carry at most two
-decimal places; the side of a line is `postingType`, never a negative amount).
+payload. The shapes do not agree across targets — the same journal entry line
+expresses its side, and even its amount's *type*, differently in each — and a
+wrong shape is refused rather than coerced. Read the doc for the pair you are
+proposing; do not carry one over from another target or another session.
 
 This plugin is pinned on disk and the catalog moves without it. A shape you
 remember from a previous session may be stale; the descriptor never is.
 
-### Do not write a `rationale`
-Leave the field off. A proposal is evaluated from the entry itself, the gate
-checks, the memo, and the evidence behind it — not from an agent's account of its
-own work.
+### The `rationale` is what they decide from
+Say **why this write**, and **what you based it on** — the source, the period, the
+filter. It is the only prose an approver gets, and it is never posted. Compare:
 
-You must still *understand* the change to that standard. If you could not say
-which source, which period and which filter produced these numbers, you are not
-ready to propose it — ask the user rather than guessing. What changes is only that
-the answer belongs in the entry and its evidence, not in a paragraph of your prose.
+> ✗ "September accrual."
+> ✓ "September contractor invoices totalling $8,400.50 arrived after close.
+>    Accruing so the month reflects the expense. From `bill.vendor_invoices`,
+>    invoices dated 2026-09-01..30 with no matching payment."
 
-Keep the memo short: it is written into the customer's books. The descriptor for
-the action says exactly how short.
+If you cannot write the second kind, you do not yet understand the change well
+enough to propose it. Ask the user rather than guessing.
+
+Attaching evidence does not replace it. Evidence shows *what the numbers came
+from*; the rationale says *why this write* — the queue shows both, and an
+approver reading a payload with neither has only the amounts to go on.
+
+**The memo is not the place for any of it.** `privateNote`, and a line's `memo`,
+are written into the customer's books permanently. Keep them to a short summary
+of what the entry is; the descriptor for the action says exactly how short.
+
+### NetSuite resolves nothing
+QuickBooks takes an account by name and resolves it **when you propose**, refusing
+a wrong one on the spot with the near matches; `proposals.accounts` will list the
+real chart of accounts for you first. NetSuite has neither. It takes numeric
+internalIds and checks none of them until it posts — *after* a human has approved.
+
+A wrong `accountId` at least fails loudly then. A wrong-but-valid `departmentId`,
+`classId`, `locationId` or `entityId` posts successfully into the wrong report,
+and nothing tells anyone. So never guess a NetSuite id: ask the person you are
+working with, and if they cannot supply it, propose without the segment rather
+than inventing one.
 
 ### Be honest about `proposedVia`
 It defaults to `agent`, which is the claim that assumes less. Set `human` **only**
@@ -71,8 +93,8 @@ nothing has been written yet.
 1. **Describe.** `tools.describe("proposals.propose")` for the proposable actions
    and the payload doc for the one you need.
 2. **Build the payload** to that doc.
-3. **Check you understand the *why*.** Interview the user if you do not. Do not
-   send a `rationale` — see above.
+3. **Write the `rationale`.** Interview the user if you are missing the *why*.
+   Attaching evidence at step 5 does not excuse it — see above.
 4. **Offer an assignee** (optional). Naming an approver or reviewer is **binding**:
    only that person can act, and only they see it in their queue. Omitting it
    leaves the proposal open to anyone holding the capacity, which is usually what
