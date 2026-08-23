@@ -32,9 +32,10 @@ people will hit first:
 
 - **`dough` is not found** — the CLI is not installed.
 - **`dough: unknown command 'plugin'`** — the CLI is installed but predates this
-  command. Say that plainly; the message itself mentions neither the CLI nor an
-  update, so a user has no way to read it as "my dough is too old". Nothing about
-  the plugin needs reinstalling.
+  command, which needs **v0.1.39 or later** (`dough --version` reports it). Say
+  that plainly; the message names neither the CLI nor an update, so a user has no
+  way to read it as "my dough is too old". Nothing about the plugin needs
+  reinstalling.
 
 Either way, point them at the installer rather than working around it:
 
