@@ -50,6 +50,10 @@ dough plugin refresh           # install the latest published version
 dough plugin refresh --check   # report whether an update exists, change nothing
 ```
 
+`/dough:plugin_version` reports all three numbers — loaded in this session,
+installed on disk, latest published — which is the fastest way to tell "the
+refresh did not work" apart from "the refresh worked and they have not restarted".
+
 ### A refresh NEVER applies to the running session
 
 Claude Code pins the plugin's install path **and** reads its command and skill

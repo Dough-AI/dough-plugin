@@ -16,8 +16,10 @@ point of this command.
 
 Report exactly what the command printed, then:
 
-- **If it refreshed** (`X -> Y`): tell them to **restart Claude Code**, and be
-  plain that the change is not live until they do. A refresh never applies to
+- **If it refreshed** (`X -> Y`): tell them to **restart Claude Code** — fully
+  quit and reopen, not just close the window. On macOS closing the window leaves
+  the app running with the old plugin still loaded, which looks exactly like a
+  refresh that did not work. Be plain that the change is not live until they do. A refresh never applies to
   the session that ran it — this session is still running the old copy, whatever
   the version number now says on disk. Do not describe the new behaviour as
   though it were already in effect.
