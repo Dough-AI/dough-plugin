@@ -12,15 +12,18 @@ Attach the session and its evidence as well. The script lives at
 0. **Refresh the plugin first.** Run `dough plugin refresh`. What a proposal
    may contain changes with the server, and this file is pinned on disk — so the
    copy you are reading can be older than the catalog you are proposing into.
-   The refresh is best-effort and must never block the proposal: if `dough` is
-   missing or the download fails, note it in one line and continue.
+   The refresh is best-effort and must never block the proposal. If `dough` is
+   missing, is too old to know the `plugin` command, or the download fails or is
+   slow, note it in one line and go straight to step 1 — do not wait on it, and
+   do not let a slow network hold up the proposal.
 
    If it reports a refresh (`X -> Y`), the new guidance is **not** what you are
-   following right now — a refresh never applies to the session that ran it. Say
-   so when you report at the end, and recommend a restart before the next
-   proposal. Do not restart mid-flow and do not abandon the entry you are
-   building; `tools.describe` in step 1 is live and remains the authority on what
-   is proposable either way.
+   following right now — a refresh never applies to the session that ran it. Do
+   not restart mid-flow and do not abandon the entry you are building;
+   `tools.describe` in step 1 is live and remains the authority on what is
+   proposable either way. Say two things when you report at the end: that **the
+   plugin was updated on disk** — you changed something the user did not ask you
+   to change — and that a restart is worth doing before the next proposal.
 
 1. **Scan.** `python3 <script> scan` — reads the session transcript and lists
    every file this session touched. Structural, so nothing is missed.

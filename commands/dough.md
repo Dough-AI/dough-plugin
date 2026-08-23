@@ -27,11 +27,21 @@ Report exactly what the command printed, then:
   gates on, so that release is one nobody can install. That is a publishing bug
   for whoever maintains the plugin, not something the user can fix.
 
-If `dough` is not found, the CLI is not installed. Point them at the installer
-rather than trying to work around it:
+Two failures both mean "re-run the installer", and the second is the one most
+people will hit first:
+
+- **`dough` is not found** — the CLI is not installed.
+- **`dough: unknown command 'plugin'`** — the CLI is installed but predates this
+  command. Say that plainly; the message itself mentions neither the CLI nor an
+  update, so a user has no way to read it as "my dough is too old". Nothing about
+  the plugin needs reinstalling.
+
+Either way, point them at the installer rather than working around it:
 
 - macOS: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
 - Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
+
+Then have them run `/dough` again.
 
 If the command fails for any other reason — no network, a proxy, a permissions
 error on the plugin store — show what it said and stop. Do not try to patch the

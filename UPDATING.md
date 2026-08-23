@@ -38,8 +38,10 @@ repo over plain HTTPS and writes it into Claude Code's shared plugin store
 the repo is public — which is why it works on a Windows machine where the app's
 own update path does not.
 
-It needs a recent Dough CLI; `dough plugin --help` says whether this machine has
-it, and re-running the installer below is how to get it.
+It needs a recent Dough CLI. On a binary that predates the command, `/dough`
+reports `dough: unknown command 'plugin'` — which names neither the CLI nor an
+update, so it reads as a broken plugin when it is an old CLI. Re-running the
+installer (section C) fixes it; nothing about the plugin needs reinstalling.
 
 From a terminal, without Claude Code, the same thing:
 
