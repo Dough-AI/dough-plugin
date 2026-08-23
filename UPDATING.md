@@ -27,19 +27,19 @@ Every change to a skill, reference, or command is a release.
 
 ---
 
-## B. Refresh a client — `/dough`, or `dough plugin refresh`
+## B. Refresh a client — `/dough:refresh`, or `dough plugin refresh`
 
-**The one-liner: run `/dough` in Claude Code, then restart it.** That is the whole
+**The one-liner: run `/dough:refresh` in Claude Code, then restart it.** That is the whole
 procedure for a user on any platform, and it is the answer to give in support.
 
-`/dough` runs `dough plugin refresh`, which downloads this
+`/dough:refresh` runs `dough plugin refresh`, which downloads this
 repo over plain HTTPS and writes it into Claude Code's shared plugin store
 (`~/.claude/plugins/`). It needs no `git`, no credentials and no `claude` CLI —
 the repo is public — which is why it works on a Windows machine where the app's
 own update path does not.
 
 It needs **Dough CLI v0.1.39 or later** (`dough --version`). On an older binary
-`/dough` reports `dough: unknown command 'plugin'` — which names neither the CLI nor an
+`/dough:refresh` reports `dough: unknown command 'plugin'` — which names neither the CLI nor an
 update, so it reads as a broken plugin when it is an old CLI. Re-running the
 installer (section C) fixes it; nothing about the plugin needs reinstalling.
 
@@ -96,7 +96,7 @@ the new version, and the skill content should match this release.
 
 ## C. Desktop-only users (no Dough CLI installed)
 
-Install the Dough CLI once; then `/dough` works from inside the app like anywhere
+Install the Dough CLI once; then `/dough:refresh` works from inside the app like anywhere
 else.
 
 - macOS: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`

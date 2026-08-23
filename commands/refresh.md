@@ -42,7 +42,7 @@ Either way, point them at the installer rather than working around it:
 - macOS: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
 - Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
 
-Then have them run `/dough` again.
+Then have them run `/dough:refresh` again.
 
 If the command fails for any other reason — no network, a proxy, a permissions
 error on the plugin store — show what it said and stop. Do not try to patch the

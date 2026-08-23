@@ -32,7 +32,8 @@ Report the caller's Dough status in four parts. Be concise.
    `plugin` command, or cannot reach the network, say so in one line and carry
    on. A stale plugin does not stop anything above from being reported.
 
-   If an update is available, say so and point at **`/dough`**, which installs it.
+   If an update is available, say so and point at **`/dough:refresh`**, which
+   installs it.
    Do not tell them to restart — nothing has changed yet.
 
 End with a one-line verdict: connected + entitled + ready, or exactly which of
