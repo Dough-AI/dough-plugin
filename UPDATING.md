@@ -27,53 +27,82 @@ Every change to a skill, reference, or command is a release.
 
 ---
 
-## B. Refresh a client — CLI first, then the desktop app
+## B. Refresh a client — `/dough`, or `dough plugin refresh`
 
-The Claude Code CLI and the desktop app **share one on-disk store**
-(`~/.claude/plugins/`). The desktop app cannot reliably refresh it on its own
-(remove/re-add does not re-clone; there is no plugin "refresh" action). So use the
-CLI — which has refresh commands — to update the shared store, then let the desktop
-app read it.
+**The one-liner: run `/dough` in Claude Code, then restart it.** That is the whole
+procedure for a user on any platform, and it is the answer to give in support.
 
-### Step 1 — in Claude Code (the CLI / terminal)
+`/dough` runs `dough plugin refresh`, which downloads this
+repo over plain HTTPS and writes it into Claude Code's shared plugin store
+(`~/.claude/plugins/`). It needs no `git`, no credentials and no `claude` CLI —
+the repo is public — which is why it works on a Windows machine where the app's
+own update path does not.
 
-```
-/plugin marketplace update dough-plugins     # git-pulls the shared marketplace clone to latest
-/plugin update dough@dough-plugins           # re-installs the plugin into the shared cache
-/reload-plugins                              # loads it in the current CLI session
-```
+It needs a recent Dough CLI; `dough plugin --help` says whether this machine has
+it, and re-running the installer below is how to get it.
 
-Verify: `/plugin` (or `claude mcp list` for the connector) shows Dough at the new
-version.
-
-### Step 2 — in the Claude Desktop app
+From a terminal, without Claude Code, the same thing:
 
 ```
-Fully quit and reopen the app.
+dough plugin refresh           # install the latest published version
+dough plugin refresh --check   # report whether an update exists, change nothing
 ```
 
-On launch it reads the now-fresh shared store, so the skill is current. Verify in
-**Settings → Plugins → Dough**: the version and the skill content should match the
-release.
+### A refresh NEVER applies to the running session
 
-### If the desktop still shows the old version/skill
+Claude Code pins the plugin's install path **and** reads its command and skill
+bodies at session start. Editing the store underneath a live session changes
+nothing in it — verified by sentinel: a command file altered mid-session still
+served the old text, even after `installed_plugins.json` had moved on.
 
-The desktop cache went stale. Now that Step 1 refreshed the shared clone:
+So the refresh always ends with **restart Claude Code** (fully quit and reopen the
+desktop app). Never tell a user the new behaviour is live before they do.
 
-- **Uninstall + reinstall** the plugin in the app (Settings → Plugins → Dough → ⋮ →
-  Uninstall, then reinstall from the marketplace). Reinstall reads the fresh clone.
+### Why not `/plugin update`
+
+```
+/plugin marketplace update dough-plugins     # git-pulls the shared marketplace clone
+/plugin update dough@dough-plugins           # re-installs FROM THAT CLONE
+```
+
+This still works and remains fine for maintainers. It is not what to tell a stuck
+user, because the thing that gets stuck is the clone itself:
+
+- The installed copy lives in a **version-named** cache dir and
+  `installed_plugins.json` pins the plugin to that exact path. What hands out new
+  versions is the git clone under `marketplaces/`.
+- The desktop app has **no action that advances that clone**. So uninstall +
+  reinstall in the app re-installs *from the stale clone* and faithfully
+  reproduces the version the user already had — which is why "I reinstalled it
+  and it is still wrong" is the usual report, and why it is not a cache problem
+  they can clear.
+- The clone can also wedge in ways nothing surfaces. On one developer machine it
+  sat checked out on a **feature branch** with its `main` ref a month behind,
+  while `/plugin marketplace update` reported success.
+
+`dough plugin refresh` does not read, trust, or require the clone. It repairs it
+afterwards on a best-effort basis (force-resetting it to `origin/main` when `git`
+is available) so a later uninstall/reinstall from the app does not regress the
+user — but the refresh is correct whether or not that repair succeeds.
+
+### Verify
+
+`/plugin` in the CLI, or **Settings → Plugins → Dough** in the app, should show
+the new version, and the skill content should match this release.
 
 ---
 
-## C. Desktop-only users (no CLI installed)
+## C. Desktop-only users (no Dough CLI installed)
 
-There is currently **no reliable self-service refresh** for the desktop app alone —
-this is an open Anthropic bug (desktop marketplace remove/re-add does not re-clone,
-and there is no plugin refresh action). Best effort: uninstall + reinstall the
-plugin, or wait for the app's background update check.
+Install the Dough CLI once; then `/dough` works from inside the app like anywhere
+else.
 
-Until Anthropic ships a desktop marketplace refresh, **installing the Claude Code
-CLI and running Step B is the dependable path.**
+- macOS: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
+- Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
+
+Without the CLI there is still **no reliable self-service refresh** — the desktop
+app's remove/re-add does not re-clone, and there is no plugin refresh action. That
+is an open Anthropic bug; installing the CLI is the way around it.
 
 ---
 

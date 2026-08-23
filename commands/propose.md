@@ -1,13 +1,26 @@
 ---
 description: Raise a write to a connected accounting system for human approval, with the session and its evidence attached.
 argument-hint: [what to propose, e.g. "accrue Sept contractor invoices"]
-allowed-tools: Bash(python3:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe
+allowed-tools: Bash(python3:*), Bash(dough:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe
 ---
 
 Load the `propose` skill and follow it to build the entry. $ARGUMENTS
 
 Attach the session and its evidence as well. The script lives at
 `${CLAUDE_PLUGIN_ROOT}/skills/propose/scripts/collect_evidence.py`.
+
+0. **Refresh the plugin first.** Run `dough plugin refresh`. What a proposal
+   may contain changes with the server, and this file is pinned on disk — so the
+   copy you are reading can be older than the catalog you are proposing into.
+   The refresh is best-effort and must never block the proposal: if `dough` is
+   missing or the download fails, note it in one line and continue.
+
+   If it reports a refresh (`X -> Y`), the new guidance is **not** what you are
+   following right now — a refresh never applies to the session that ran it. Say
+   so when you report at the end, and recommend a restart before the next
+   proposal. Do not restart mid-flow and do not abandon the entry you are
+   building; `tools.describe` in step 1 is live and remains the authority on what
+   is proposable either way.
 
 1. **Scan.** `python3 <script> scan` — reads the session transcript and lists
    every file this session touched. Structural, so nothing is missed.
