@@ -98,10 +98,21 @@ the new version, and the skill content should match this release.
 
 ---
 
-## C. Desktop-only users (no Dough CLI installed)
+## C. A machine that has never had the plugin
 
-Install the Dough CLI once; then `/dough:refresh` works from inside the app like anywhere
-else.
+`/dough:refresh` only exists once the plugin is installed, so a fresh machine
+needs the CLI. Install it, then:
+
+```
+dough plugin install
+```
+
+That sets up everything Claude Code needs — the marketplace registration in
+`settings.json`, the plugin files, and the **marketplace directory the plugin is
+resolved through**. Without that last one Claude Code reports
+`failed to load: cache-miss` however correct the rest of the store is, which is
+the failure mode to recognise if someone hand-assembles an install. It does not
+need git, credentials or the `claude` CLI, so it runs from PowerShell.
 
 - macOS: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
 - Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
