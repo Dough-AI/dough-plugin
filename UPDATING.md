@@ -29,8 +29,16 @@ Every change to a skill, reference, or command is a release.
 
 ## B. Refresh a client — `/dough:refresh`, or `dough plugin refresh`
 
-**The one-liner: run `/dough:refresh` in Claude Code, then restart it.** That is the whole
-procedure for a user on any platform, and it is the answer to give in support.
+**The one-liner: run `/dough:refresh` in Claude Code, then fully quit and reopen
+it.** That is the whole procedure for a user on any platform, and it is the
+answer to give in support.
+
+In the **terminal (Claude Code CLI)** only, `/reload-plugins` loads the new
+version without restarting. It is genuinely faster there — but it does **not
+exist in the desktop app** (`/reload-plugins isn't available in this
+environment`), which is where most customers are. So quit-and-reopen stays the
+instruction to give by default; offer `/reload-plugins` only when you know they
+are in a terminal.
 
 `/dough:refresh` runs `dough plugin refresh`, which downloads this
 repo over plain HTTPS and writes it into Claude Code's shared plugin store
@@ -54,15 +62,22 @@ dough plugin refresh --check   # report whether an update exists, change nothing
 installed on disk, latest published — which is the fastest way to tell "the
 refresh did not work" apart from "the refresh worked and they have not restarted".
 
-### A refresh NEVER applies to the running session
+### A refresh never applies to the running session by itself
 
 Claude Code pins the plugin's install path **and** reads its command and skill
 bodies at session start. Editing the store underneath a live session changes
 nothing in it — verified by sentinel: a command file altered mid-session still
 served the old text, even after `installed_plugins.json` had moved on.
 
-So the refresh always ends with **restart Claude Code** (fully quit and reopen the
-desktop app). Never tell a user the new behaviour is live before they do.
+So the refresh always ends with **fully quit and reopen Claude Code** — or, in a
+terminal session, `/reload-plugins`. Never tell a user the new behaviour is live
+before they have done one of them.
+
+Verified both ways: after `/reload-plugins` in a CLI session pinned at 0.16.0,
+`${CLAUDE_PLUGIN_ROOT}` resolved to 0.19.3 and a command that did not exist at
+session start became invocable — so commands reload, despite the published docs
+listing only skills/agents/hooks/MCP servers. In the desktop app the same command
+returns "isn't available in this environment".
 
 ### Why not `/plugin update`
 

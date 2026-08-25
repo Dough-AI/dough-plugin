@@ -22,11 +22,14 @@ command exists.
 Then say which of these three states they are in, and only the one that applies:
 
 - **Loaded = installed = latest.** Current. Nothing to do.
-- **Installed is newer than loaded.** A refresh has already run in this session or
-  another one, and this session is still on the old copy. Tell them to **restart
-  Claude Code** — fully quit and reopen, not just close the window; on macOS
-  closing the window leaves the app running and the old plugin loaded, which
-  looks exactly like a refresh that did not work.
+- **Installed is newer than loaded.** A refresh has already run in this session
+  or another one, and this session is still on the old copy. In the **terminal
+  (Claude Code CLI)**, `/reload-plugins` loads it on the spot. In the **desktop
+  app** that command does not exist, so they must **fully quit and reopen** —
+  not just close the window, which leaves the app running with the old plugin
+  loaded and looks exactly like a refresh that did not work. Give the one that
+  matches where they are; if you cannot tell, give the quit-and-reopen form,
+  which works in both.
 - **A newer version is published.** Point them at **`/dough:refresh`**, then a
   restart.
 
