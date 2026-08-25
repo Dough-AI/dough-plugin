@@ -23,7 +23,9 @@ Attach the session and its evidence as well. The script lives at
    `tools.describe` in step 1 is live and remains the authority on what is
    proposable either way. Say two things when you report at the end: that **the
    plugin was updated on disk** — you changed something the user did not ask you
-   to change — and that a restart is worth doing before the next proposal.
+   to change — and that it is worth loading before the next proposal:
+   `/reload-plugins` in the terminal, or fully quitting and reopening the
+   desktop app, where that command does not exist.
 
 1. **Scan.** `python3 <script> scan` — reads the session transcript and lists
    every file this session touched. Structural, so nothing is missed.

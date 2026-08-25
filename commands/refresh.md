@@ -16,13 +16,19 @@ point of this command.
 
 Report exactly what the command printed, then:
 
-- **If it refreshed** (`X -> Y`): tell them to **restart Claude Code** — fully
-  quit and reopen, not just close the window. On macOS closing the window leaves
-  the app running with the old plugin still loaded, which looks exactly like a
-  refresh that did not work. Be plain that the change is not live until they do. A refresh never applies to
-  the session that ran it — this session is still running the old copy, whatever
-  the version number now says on disk. Do not describe the new behaviour as
-  though it were already in effect.
+- **If it refreshed** (`X -> Y`): the new version is on disk but **not live in
+  this session** — this session is still running the old copy, whatever the
+  version number now says. Which fix applies depends on where they are:
+  - **Desktop app** — `/reload-plugins` does not exist there. They must **fully
+    quit and reopen**, not just close the window: closing it leaves the app
+    running with the old plugin loaded, which looks exactly like a refresh that
+    did not work.
+  - **Terminal (Claude Code CLI)** — `/reload-plugins` loads it immediately, no
+    restart needed.
+
+  If you cannot tell which they are on, give the quit-and-reopen instruction —
+  it works in both. Either way, do not describe the new behaviour as though it
+  were already in effect.
 - **If it was already current**: say so in one line. Nothing to restart.
 - **If it printed a `Warning:` about versions disagreeing**: relay it verbatim.
   It means a release bumped some version fields and not the one the desktop app
