@@ -26,7 +26,8 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
   deterministic workbook writes), `propose` (raise a write to a connected
   accounting system for human approval instead of performing it), and
   `run-agent` (open a published Dough agent inside the current session, so its
-  own instructions, skills, and credentials take over without leaving Claude).
+  own instructions and skills take over without leaving Claude; its scripts fetch
+  their own credentials, so nothing lands in the session environment).
 - **Commands:** `/dough:status`, and `/dough:propose` — raises a write for
   approval with the session transcript and the files behind it attached, so an
   approver can see what the numbers came from. Evidence is hashed locally and
