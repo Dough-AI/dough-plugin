@@ -5,9 +5,9 @@ description: Open a Dough agent inside this session. Use when asked to run, use,
 
 # Run a Dough agent in this session
 
-A Dough agent is a directory: its instructions live in its own `CLAUDE.md`, its
-skills in `.claude/skills/`, and its credentials are delivered to commands run
-inside it. **Being in that directory is what loads all three.** Adding it to the
+A Dough agent is a directory: its instructions live in its own `CLAUDE.md` and
+its skills in `.claude/skills/`. **Being in that directory is what loads both**,
+and it is also what lets the agent's scripts find the credentials they need. Adding it to the
 session with `--add-dir` registers the skills but does not load `CLAUDE.md`,
 which is not the same thing and fails silently.
 
@@ -36,7 +36,7 @@ So this skill does one thing: it fetches the agent and moves the session into it
 3. **Change the session directory** to the absolute path from step 1.
 
 4. **Stop there. End your turn.** Tell the user the agent's instructions and
-   credentials arrive on their next message.
+   skills take effect on their next message.
 
    Two things not to do, both of which look like diligence and are not:
 
@@ -50,34 +50,40 @@ So this skill does one thing: it fetches the agent and moves the session into it
      either. When the directory-change tool appears to do nothing, `cd` is
      exactly the wrong conclusion to draw.
 
-5. **On your next turn, you will normally be told where you are.** The Dough hook
-   announces the agent and confirms its credentials are live, as a fact rather
-   than something you have to remember.
-
-   If that announcement does not arrive, verify: confirm your working directory
+5. **On your next turn, confirm the move landed.** Check your working directory
    and that the agent's `CLAUDE.md` is loaded. If either is missing, the move did
    not happen — tell the user to run `dough agent run <name>` from a terminal.
+
+   Do not check for credentials as part of this. They are not in the session by
+   design, so their absence tells you nothing about whether the move worked.
 
 6. **From then on, follow the agent's own `CLAUDE.md`.** You are the agent now;
    this skill's job is finished.
 
 ## Credentials
 
-Credentials reach commands **you** run. They are attached to each Bash call
-inside the agent directory, and the value never appears in the command itself —
-only a path to the file holding it. Never print, echo, or copy a credential
-value, and never read the file they live in just to display it.
+**This session holds none of them, and that is not a fault.** An agent's own
+scripts fetch their credentials from the Dough vault when they run. Nothing is
+placed in the session environment, so `env | grep TOKEN` comes back empty even
+when everything is working perfectly. Do not report that as a problem, and do
+not try to fix it.
 
-**A command the user types by hand with `!` will not see them.** That is expected
-and is not a fault: `!` bypasses the hook that supplies them entirely. If a user
-checks that way and reports the credentials are missing, say so and offer to run
-the same command yourself.
+What this means in practice:
 
-Two more limits worth stating rather than letting someone discover:
+- **Run the agent's scripts and let them do it.** A script calls
+  `dough_secrets.load()` at startup and gets what it needs.
+- **If you write your own script that needs a credential**, call the same
+  loader — do not try to read one out of the environment, and never inline a
+  value into a command. `load()`'s own docstring carries the few lines that put
+  it on your import path.
+- **Never print, echo, or copy a credential value**, and never read the file one
+  lives in just to display it.
 
-- Only Bash receives them. That is enough, because credentials are consumed by
-  scripts.
-- They are scoped to this session and removed when it ends.
+When a credential cannot be resolved, the script fails with a sentence written
+for a person: not signed in, a provider an admin has not configured, or the
+user's own connection to that provider having expired, with where to reconnect
+it. Relay that message and act on it rather than investigating further — it is
+the answer, not a symptom.
 
 ## Never call `dough agent run` from inside a session
 

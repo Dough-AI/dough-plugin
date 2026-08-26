@@ -95,18 +95,37 @@ def test_bash_cd_is_forbidden_with_its_reason():
     )
 
 
-def test_bang_bypass_is_documented():
-    # Measured: a user-typed `!` command bypasses PreToolUse entirely, so it sees
-    # no credentials. Without this, the mechanism looks broken to anyone who checks.
+def test_says_the_session_holds_no_credentials():
+    # The single most important thing this skill can say. Anyone who checks the
+    # session environment finds it empty, and without this they will report a
+    # bug, "fix" it, or refuse to proceed. (The old `!`-bypass caveat was pinned
+    # here and is now gone: it only mattered while a hook injected per command,
+    # and nothing is injected any more.)
     body = flat(SKILL)
-    # Anchor on the user-facing consequence, not on the bare "`!`" — the token
-    # appears twice in one paragraph, so a looser anchor passes on the OTHER
-    # mention and survives deleting the claim being pinned. (It did.)
-    assert near(body, "types by hand with `!`", "will not see them", "bypasses"), (
-        "the ! bypass must state what the user will observe, not just that it exists"
+    assert near(body, "This session holds none of them", "not a fault"), (
+        "the skill must state that an empty session is correct, not broken"
     )
-    assert near(body, "bypasses the hook", "run the same command yourself", window=300), (
-        "without the remedy, a user who checks with ! concludes the feature is broken"
+    assert near(body, "env | grep", "empty", "working"), (
+        "name the exact check someone will run and say what it correctly shows"
+    )
+    assert "do\nnot try to fix it" in SKILL.read_text(encoding="utf-8") or near(
+        body, "Do not report that as a problem", "do not try to fix it"
+    ), "an explanation without an instruction still leaves room to 'fix' it"
+
+
+def test_points_writers_at_the_loader():
+    # The failure mode this prevents: a model writing its own script, finding
+    # nothing in os.environ, and inlining a value into a command instead.
+    body = flat(SKILL)
+    assert near(body, "Run the agent's scripts", "dough_secrets.load()", window=300), (
+        "the normal path — run what ships — must come before the write-your-own case"
+    )
+    assert near(body, "write your own script", "call the same", "loader"), (
+        "improvised code must be told where credentials come from"
+    )
+    assert near(body, "do not try to read one out of the environment",
+                "never inline a value into a command"), (
+        "both wrong moves must be named, not just the right one"
     )
 
 
@@ -124,8 +143,17 @@ def test_never_runs_dough_agent_run_itself():
 def test_credential_values_are_never_printed():
     body = flat(SKILL)
     assert near(body, "Never print", "credential", window=200)
-    assert "only a path to the file" in body, (
-        "the path-not-value property is what keeps secrets out of the uploaded transcript"
+    assert near(body, "never read the file one", "just to display it"), (
+        "reading the credential file to show it is the loophole in 'never print'"
+    )
+
+
+def test_vault_failures_are_relayed_not_investigated():
+    # These messages are written for a person and name the fix. A model that
+    # treats one as a symptom burns a turn diagnosing something already diagnosed.
+    body = flat(SKILL)
+    assert near(body, "Relay that message", "rather than investigating"), (
+        "the skill must say a vault message is the answer, not a clue"
     )
 
 
