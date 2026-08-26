@@ -23,8 +23,10 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
   out), `excel` (Dough-managed Excel workbooks: a visible `Dough`
   manifest sheet maps data sheets to saved queries, so Claude can refresh them
   without re-deriving anything — includes a bundled openpyxl script for
-  deterministic workbook writes), and `propose` (raise a write to a connected
-  accounting system for human approval instead of performing it).
+  deterministic workbook writes), `propose` (raise a write to a connected
+  accounting system for human approval instead of performing it), and
+  `run-agent` (open a published Dough agent inside the current session, so its
+  own instructions, skills, and credentials take over without leaving Claude).
 - **Commands:** `/dough:status`, and `/dough:propose` — raises a write for
   approval with the session transcript and the files behind it attached, so an
   approver can see what the numbers came from. Evidence is hashed locally and
