@@ -49,8 +49,11 @@ For each manifest row being refreshed:
    wins over the workbook's `sql_snapshot` — if they differ, tell the user the
    saved query changed. If the saved query was DELETED, fall back to
    `sql_snapshot`, tell the user, and offer to re-save it with `queries.save`.
-2. Run the SQL with `integrations.query` (limit up to 5000 rows — if the result is
-   truncated, warn the user and suggest a lower grain before writing anything).
+2. Run the SQL with `integrations.query`. `limit` is the PAGE size, not a total:
+   when the response carries a `nextCursor`, keep calling `integrations.query.next`
+   with it until it stops, and write the accumulated rows. A full result is only
+   too big if it exceeds the 20000-row sheet cap below — reaching `limit` on the
+   first page means there are more pages, not that the data was truncated.
 3. Replace the data sheet's contents wholesale (headers row 2, data row 3+; row
    count may grow or shrink). Rewrite the banner with the new timestamp. Reapply
    `refresh_notes` formatting.
@@ -77,7 +80,7 @@ Never touch anything outside the data sheet and its manifest row.
   per-sheet summary lines to the user. Use `list` to read the manifest instead of
   opening the workbook yourself.
 - **Claude in Excel (add-in):** write cells via the add-in tools, following the
-  contract above exactly. Keep pulls well under the 5000-row cap; for bigger
+  contract above exactly. Keep pulls well under the 20000-row cap; for bigger
   refreshes, suggest running it in Claude Code or the desktop app instead.
 
 Payload JSON for the script (one entry per sheet):
@@ -127,8 +130,9 @@ approximate it with the add-in's formatting tools.
   ask the user; never guess.
 - Refresh REPLACES managed sheets; anything a user typed into one is lost by
   contract. The banner states this — always rewrite it (self-healing).
-- If a refresh would exceed 5000 rows, warn before writing and suggest a lower
-  grain (or SQL-side aggregation for that sheet).
+- If a refresh would exceed 20000 rows, warn before writing and suggest a lower
+  grain (or SQL-side aggregation for that sheet). Below that ceiling, paginate and
+  write every row — do not aggregate a result merely because it spans pages.
 - Everything Dough writes is merge-free: banners and title bands are a single
   cell overflowing across a filled band. On the add-in path, reproduce that
   shape — never merge cells.
