@@ -155,11 +155,24 @@ def test_non_managed_workbook_fails_cleanly(tmp_path):
 
 def test_row_cap_enforced(tmp_path):
     book = tmp_path / "book.xlsx"
-    big = "col\n" + "\n".join(str(i) for i in range(5001)) + "\n"
+    big = "col\n" + "\n".join(str(i) for i in range(20001)) + "\n"
     capped = entry(tmp_path, rows=big)
     result = run("create", str(book), "--payload", payload(tmp_path, [capped]))
     assert result.returncode == 2
-    assert "5000 cap" in result.stderr
+    assert "20000 cap" in result.stderr
+
+
+def test_rows_just_under_cap_are_written(tmp_path):
+    # The cap is a ceiling, not a target: a sheet an order of magnitude past the
+    # old 5_000 limit must write cleanly. Guards against the cap silently
+    # regressing to the API's page size again.
+    book = tmp_path / "book.xlsx"
+    rows = "col\n" + "\n".join(str(i) for i in range(19_999)) + "\n"
+    result = run("create", str(book), "--payload",
+                 payload(tmp_path, [entry(tmp_path, rows=rows)]))
+    assert result.returncode == 0, result.stderr
+    ws = load_workbook(book)["Revenue Detail"]
+    assert ws.max_row == 20_001          # banner + header + 19,999 data rows
 
 
 def test_identifiers_not_corrupted_by_coercion(tmp_path):

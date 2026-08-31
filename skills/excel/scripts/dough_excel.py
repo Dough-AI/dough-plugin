@@ -46,7 +46,13 @@ GRAY_SMALL = Font(size=9, color="6B7280")
 MONO_SMALL = Font(name="Courier New", size=9)
 WRAP_TOP = Alignment(wrap_text=True, vertical="top")
 COL_WIDTHS = {"A": 24, "B": 38, "C": 28, "D": 30, "E": 22, "F": 10, "G": 48}
-ROW_CAP = 5_000
+# Practical ceiling on what we will write into one managed sheet. This is a
+# workbook-size guardrail, NOT an API limit: `integrations.query` paginates via
+# `integrations.query.next`, so the fetch layer has no such bound. The two were
+# once the same number — 5_000, which is merely the default page size — and that
+# coincidence made a refusal here read as "too much data" when the data had in
+# fact arrived intact and complete.
+ROW_CAP = 20_000
 
 
 def fail(code: int, message: str) -> None:
