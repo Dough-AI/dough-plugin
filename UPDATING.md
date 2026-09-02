@@ -16,7 +16,8 @@ Every change to a skill, reference, or command is a release.
    - `.claude-plugin/marketplace.json` → `metadata.version`
    - `.claude-plugin/marketplace.json` → `plugins[0].version`  ← **the desktop app reads this one**
 3. Validate: `claude plugin validate .` (expect `✔ Validation passed`).
-4. `git commit` and `git push` to `main`.
+4. Open a **pull request** and get it approved — changes to this repo are no
+   longer pushed straight to `main`. The release is only live once it merges.
 
 > **Why bump all three.** The Claude Code CLI can fall back to the git commit SHA,
 > but the **Claude Desktop app is version-gated and reads the `marketplace.json`
