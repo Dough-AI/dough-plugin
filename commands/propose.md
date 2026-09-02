@@ -1,13 +1,30 @@
 ---
 description: Raise a write to a connected accounting system for human approval, with the session and its evidence attached.
 argument-hint: [what to propose, e.g. "accrue Sept contractor invoices"]
-allowed-tools: Bash(python3:*), Bash(dough:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe
+allowed-tools: Bash(python:*), Bash(python3:*), Bash(py:*), Bash(dough:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe, mcp__plugin_dough_dough__proposals__propose, mcp__plugin_dough_dough__proposals__actions, mcp__plugin_dough_dough__proposals__evidence__begin, mcp__plugin_dough_dough__tools__describe, mcp__claude_ai_dough__proposals__propose, mcp__claude_ai_dough__proposals__actions, mcp__claude_ai_dough__proposals__evidence__begin, mcp__claude_ai_dough__tools__describe
 ---
 
 Load the `propose` skill and follow it to build the entry. $ARGUMENTS
 
 Attach the session and its evidence as well. The script lives at
 `${CLAUDE_PLUGIN_ROOT}/skills/propose/scripts/collect_evidence.py`.
+
+**How to run the script.** Every `<py> <script>` below means:
+
+- **Windows: `python`.** There is normally no `python3` on Windows. The name is
+  an App Execution Alias that prints "Python was not found; run without
+  arguments to install from the Microsoft Store" and exits WITHOUT running
+  anything — it looks like a missing interpreter but it is a stub, and it is not
+  a reason to conclude Python is unavailable. Use `python`.
+- **macOS and Linux: `python3`.**
+
+Run it **bare**: `<py> <script> <args>`. Do NOT prefix it with `cd … &&`, and do
+NOT pipe it into `head` or anything else. A permission rule matches one command;
+a compound line is several, and each part has to be separately permitted or the
+whole thing is refused. On a session in auto mode that refusal is a hard stop —
+no prompt, no approval, the evidence simply never uploads and the proposal goes
+out with the audit trail missing. Keep the invocation to a single command and
+read the script's full output rather than truncating it.
 
 0. **Refresh the plugin first.** Run `dough plugin refresh`. What a proposal
    may contain changes with the server, and this file is pinned on disk — so the
@@ -27,7 +44,7 @@ Attach the session and its evidence as well. The script lives at
    `/reload-plugins` in the terminal, or fully quitting and reopening the
    desktop app, where that command does not exist.
 
-1. **Scan.** `python3 <script> scan` — reads the session transcript and lists
+1. **Scan.** `<py> <script> scan` — reads the session transcript and lists
    every file this session touched. Structural, so nothing is missed.
 
 2. **Curate.** Keep only what actually backs this entry. Drop source you happened
@@ -37,7 +54,7 @@ Attach the session and its evidence as well. The script lives at
    Limits worth knowing while you choose: 25 MB per object, 100 MB per set, 64
    objects. The transcript alone is often 1–2 MB.
 
-3. **Declare.** `python3 <script> declare --files <kept paths>` — hashes each
+3. **Declare.** `<py> <script> declare --files <kept paths>` — hashes each
    file and emits the `objects[]` array plus a `paths` map. Pass `objects`
    straight to `proposals.evidence.begin` with the `sessionId` from the scan.
 
@@ -54,7 +71,7 @@ Attach the session and its evidence as well. The script lives at
    { "uploads": [ ...from evidence.begin... ], "paths": { ...from declare... } }
    ```
 
-   Then `python3 <script> upload --plan <plan>`.
+   Then `<py> <script> upload --plan <plan>`.
 
    Each URL accepts exactly one successful PUT, but a *failed* attempt leaves
    nothing behind, so the script's retries are safe as written.
