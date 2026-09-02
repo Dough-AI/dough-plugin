@@ -377,3 +377,83 @@ def test_the_posted_memo_is_still_ring_fenced():
     assert near(text, "memo", "short", window=300), (
         "SKILL.md no longer says to keep the posted memo short"
     )
+
+
+COMMANDS_DIR = ROOT / "commands"
+
+
+def allowed_tools(command_path):
+    """The `allowed-tools:` entries of a command's frontmatter, as a list.
+
+    These decide whether a tool call is PRE-AUTHORIZED. An entry that never
+    matches is not a no-op: the call falls through to whatever the session's
+    permission mode does with an unauthorized tool, which in manual mode is a
+    prompt a human clicks past — and in auto mode is a classifier that refuses.
+    So a stale entry is invisible in manual testing and fatal in auto.
+    """
+    text = command_path.read_text(encoding="utf-8")
+    match = re.search(r"^allowed-tools:(.*)$", text, re.MULTILINE)
+    assert match, f"{command_path.name} has no allowed-tools: line"
+    return [t.strip() for t in match.group(1).split(",") if t.strip()]
+
+
+def test_propose_allows_the_interpreter_windows_actually_has():
+    """Windows has no `python3`, so a rule naming only it can never match there.
+
+    `python3` on Windows is an App Execution Alias that prints "Python was not
+    found…" and exits without running anything. An agent on Windows correctly
+    falls back to `python` — and lands outside `Bash(python3:*)`. Reproduced on
+    a Windows VM: the evidence upload was refused by the auto-mode classifier,
+    the proposal went out with no audit trail, and the same run passed in manual
+    mode only because a human approved what the rule failed to cover.
+    """
+    tools = allowed_tools(PROPOSE_COMMAND)
+    assert "Bash(python:*)" in tools, (
+        "commands/propose.md does not allow Bash(python:*) — on Windows the "
+        "evidence script cannot be run under any rule, so the upload is refused "
+        "in auto mode and the proposal is raised unbacked"
+    )
+    assert "Bash(python3:*)" in tools, (
+        "commands/propose.md dropped Bash(python3:*) — macOS and Linux agents "
+        "use python3 and would now be the ones refused"
+    )
+
+
+def test_propose_does_not_hardcode_python3_in_its_instructions():
+    """The body must not tell a Windows agent to run a command that cannot work.
+
+    Every invocation is written `<py> <script>`, with the platform choice stated
+    once. A literal `python3 <script>` reintroduces the failure the allow-list
+    fix above only half-covers: the agent obeys, hits the Store stub, and has to
+    improvise its way back to a command that may not match a rule.
+    """
+    text = PROPOSE_COMMAND.read_text(encoding="utf-8")
+    body = text.split("---", 2)[-1]
+    assert "python3 <script>" not in body, (
+        "commands/propose.md instructs `python3 <script>` — that command does "
+        "not run on Windows. Use the `<py> <script>` placeholder."
+    )
+    assert "<py> <script>" in body, "the `<py> <script>` placeholder is gone"
+
+
+def test_every_dough_mcp_tool_is_allowed_under_all_three_server_names():
+    """One tool, three ids, depending on how the customer connected Dough.
+
+    A plugin-provided server is namespaced `mcp__plugin_<plugin>_<server>__…`
+    and the claude.ai connector is `mcp__claude_ai_dough__…`; the bare
+    `mcp__dough__…` we used to write alone matches neither. That mismatch is why
+    `proposals.evidence.begin` was refused for every auto-mode user rather than
+    for some unlucky subset.
+    """
+    for command in sorted(COMMANDS_DIR.glob("*.md")):
+        tools = allowed_tools(command)
+        for tool in tools:
+            if not tool.startswith("mcp__dough__"):
+                continue
+            suffix = tool[len("mcp__dough__"):]
+            for prefix in ("mcp__plugin_dough_dough__", "mcp__claude_ai_dough__"):
+                assert prefix + suffix in tools, (
+                    f"{command.name} allows {tool} but not {prefix}{suffix} — "
+                    "the tool is unauthorized for anyone who connected Dough "
+                    "that way, and auto mode refuses it"
+                )

@@ -1,6 +1,6 @@
 ---
 description: Show your Dough connection status, what your org can do, whether the data lake is ready to query, and whether the plugin is up to date.
-allowed-tools: Bash(dough:*), mcp__dough__tools__list, mcp__dough__integrations__sources
+allowed-tools: Bash(dough:*), mcp__dough__tools__list, mcp__plugin_dough_dough__tools__list, mcp__claude_ai_dough__tools__list, mcp__dough__integrations__sources, mcp__plugin_dough_dough__integrations__sources, mcp__claude_ai_dough__integrations__sources
 ---
 
 Report the caller's Dough status in four parts. Be concise.
