@@ -12,7 +12,7 @@ the user's Google Sheets, Docs, and Drive files.
 actually need, and it is read-only — it never installs, writes, or authenticates.
 
 ```sh
-bash scripts/triage.sh
+python3 scripts/triage.py      # Windows: py -3 scripts\triage.py
 ```
 
 Its last line is one of five verdicts. Do exactly what the verdict says:
@@ -38,23 +38,69 @@ both, and never silently.
 
 ## Stage 1 — install the binary
 
-Skip if `bash -c 'gws --version'` already succeeds. Note the deliberately
-**non-interactive** shell: `gws` may be on an interactive-only `PATH` and be
-invisible to every command you run.
+**Supported: macOS and Windows.** Skip this stage if triage already found `gws`.
 
-Show the command before running it.
+Show the command before running it. Releases live at
+https://github.com/googleworkspace/cli/releases/latest — about 6MB, and every
+asset ships a `.sha256` beside it. **Verify the checksum before running the
+binary.**
 
-- **brew present:** `brew install googleworkspace-cli`
-- **otherwise:** download the release binary for the platform from
-  https://github.com/googleworkspace/cli/releases into `~/.local/bin/gws`,
-  then `chmod +x`.
+### macOS
 
-Do **not** install via `npm`/`nvm`. It works, but nvm's shims are absent from
-non-interactive shells, so `gws` then vanishes on the next tool call.
+Fast path, if brew is present:
 
-Verify with `bash -c 'gws --version'`. If that fails while `gws --version`
-succeeds, `~/.local/bin` is not on the non-interactive `PATH` — invoke `gws` by
-absolute path for the rest of the session and say so.
+```sh
+brew install googleworkspace-cli
+```
+
+Otherwise download the asset for the architecture — `aarch64-apple-darwin` for
+Apple Silicon, `x86_64-apple-darwin` for Intel — and unpack it:
+
+```sh
+mkdir -p ~/.local/bin
+curl -fsSL -o /tmp/gws.tar.gz "<asset url>"
+curl -fsSL -o /tmp/gws.sha256 "<asset url>.sha256"
+shasum -a 256 -c /tmp/gws.sha256      # must print OK
+tar -xzf /tmp/gws.tar.gz -C ~/.local/bin
+chmod +x ~/.local/bin/gws
+```
+
+### Windows
+
+Asset: `google-workspace-cli-x86_64-pc-windows-msvc.zip`.
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\gws"
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+Invoke-WebRequest -Uri "<asset url>" -OutFile "$env:TEMP\gws.zip"
+Invoke-WebRequest -Uri "<asset url>.sha256" -OutFile "$env:TEMP\gws.sha256"
+# compare against the .sha256 contents before continuing
+(Get-FileHash "$env:TEMP\gws.zip" -Algorithm SHA256).Hash
+Expand-Archive -Path "$env:TEMP\gws.zip" -DestinationPath $dir -Force
+```
+
+Add `$dir` to the **user** PATH (no admin needed):
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "PATH", "$([Environment]::GetEnvironmentVariable('PATH','User'));$dir", "User")
+```
+
+A new PATH entry is not visible to already-running processes — if `gws` is not
+found immediately afterwards, **invoke it by absolute path** rather than asking
+the user to restart their terminal mid-task.
+
+### Do not install via npm
+
+It works, but nvm/fnm shims are absent from non-interactive shells, so `gws`
+then vanishes on the next tool call. The release binary has no such problem.
+
+### Verify
+
+Run `gws --version` **in a fresh non-interactive shell** (`bash -c 'gws --version'`
+on macOS). If that fails while an interactive shell succeeds, the install
+directory is not on the non-interactive `PATH` — use the absolute path for the
+rest of the session and say so.
 
 ## Stage 2 — fetch the client config
 
@@ -68,6 +114,10 @@ chmod 600 ~/.config/gws/client_secret.json
 Origin defaults to `https://app.usedough.ai`; the token is the one `dough login`
 saved. A **401** means `dough login` is needed; a **403** means the org lacks the
 SKU — say which, do not retry.
+
+On Windows the same file goes to `%USERPROFILE%\\.config\\gws\\client_secret.json` —
+`gws` uses `~/.config/gws` on every platform — and is locked down with
+`icacls <path> /inheritance:r /grant:r "$env:USERNAME:F"` instead of `chmod`.
 
 Never print the file. It is not a high-value secret (Google treats installed-app
 client secrets as non-confidential) but there is no reason to put it in a
