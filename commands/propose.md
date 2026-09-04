@@ -1,7 +1,7 @@
 ---
 description: Raise a write to a connected accounting system for human approval, with the session and its evidence attached.
 argument-hint: [what to propose, e.g. "accrue Sept contractor invoices"]
-allowed-tools: Bash(python:*), Bash(python3:*), Bash(py:*), Bash(dough:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe, mcp__plugin_dough_dough__proposals__propose, mcp__plugin_dough_dough__proposals__actions, mcp__plugin_dough_dough__proposals__evidence__begin, mcp__plugin_dough_dough__tools__describe, mcp__claude_ai_dough__proposals__propose, mcp__claude_ai_dough__proposals__actions, mcp__claude_ai_dough__proposals__evidence__begin, mcp__claude_ai_dough__tools__describe
+allowed-tools: Write, Bash(python:*), Bash(python3:*), Bash(py:*), Bash(dough:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe, mcp__plugin_dough_dough__proposals__propose, mcp__plugin_dough_dough__proposals__actions, mcp__plugin_dough_dough__proposals__evidence__begin, mcp__plugin_dough_dough__tools__describe, mcp__claude_ai_dough__proposals__propose, mcp__claude_ai_dough__proposals__actions, mcp__claude_ai_dough__proposals__evidence__begin, mcp__claude_ai_dough__tools__describe
 ---
 
 Load the `propose` skill and follow it to build the entry. $ARGUMENTS
@@ -54,36 +54,66 @@ read the script's full output rather than truncating it.
    Limits worth knowing while you choose: 25 MB per object, 100 MB per set, 64
    objects. The transcript alone is often 1–2 MB.
 
-3. **Declare.** `<py> <script> declare --files <kept paths>` — hashes each
-   file and emits the `objects[]` array plus a `paths` map. Pass `objects`
-   straight to `proposals.evidence.begin` with the `sessionId` from the scan.
+3. **Confirm.** Show the user what will be attached — every kept file with its
+   size and your note, plus the transcript. This ships their local files and
+   their entire session to a server; they get to see that and say no. Wait for a
+   clear yes.
 
-4. **Confirm.** Show the user what will upload — every kept file with its size
-   and your note, the transcript, and anything the server returned in
-   `rejected`. Relay each rejection's `message`; don't interpret its `code`.
-   This ships their local files and their entire session to a server; they get
-   to see that and say no. Wait for a clear yes.
+   The caps are checked by the SERVER, not here, so an oversized object is not
+   refused until step 4. Say the sizes you know; do not promise what will be
+   accepted.
 
-5. **Upload.** Write a plan file combining the server's `uploads` array with the
-   `paths` map from step 3:
+4. **Attach.** One command does the whole thing:
 
-   ```json
-   { "uploads": [ ...from evidence.begin... ], "paths": { ...from declare... } }
+   ```
+   dough evidence upload --session <sessionId from the scan> --file <kept path> --file <kept path>
    ```
 
-   Then `<py> <script> upload --plan <plan>`.
+   Run it **bare**, like the script — no `cd … &&`, no pipe. It hashes each
+   file, freezes the transcript, declares every object to the server, uploads
+   them, and prints:
 
-   Each URL accepts exactly one successful PUT, but a *failed* attempt leaves
-   nothing behind, so the script's retries are safe as written.
+   ```json
+   { "evidenceId": "ev_…", "uploaded": [...], "failed": [...], "rejected": [...] }
+   ```
 
-   If anything lands in `failed`, do not decide for them. Show what failed and
-   offer: retry, propose without it, or cancel.
+   You never see an upload URL, and there is no plan file to write. That is the
+   point: those URLs carry a credential, and a shell command that carries one
+   toward a remote host is refused outright in auto mode.
 
-   If they choose to proceed without it, **do not re-declare.** Keep the failed
-   object in the evidence set exactly as declared and propose as normal. The
-   server records it as `missing` and names it on the proposal, so the approver
-   sees the gap. Calling `proposals.evidence.begin` again without that object is
-   the one action that would hide it.
+   Every object is declared BEFORE any bytes move, so one that fails to upload
+   is recorded against the proposal as `missing` and the approver is shown the
+   gap. Each URL accepts exactly one successful PUT; a *failed* attempt leaves
+   nothing behind, so the retries are safe as written.
+
+   **If `dough` does not know the `evidence` command**, the binary predates it.
+   Say so in one line and use the older path instead — it still works:
+
+   - `<py> <script> declare --files <kept paths>` — emits `objects[]` and a
+     `paths` map.
+   - Pass `objects` to `proposals.evidence.begin` with the `sessionId`.
+   - Write `{ "uploads": [ …from evidence.begin… ], "paths": { …from declare… } }`
+     to a file **with the Write tool.** Do NOT build it with a shell heredoc
+     (`cat > … <<'EOF'`): the plan embeds a signed URL and token, and that
+     command is refused by the auto-mode classifier — which is the whole reason
+     the `dough evidence upload` path exists.
+   - Then `<py> <script> upload --plan <plan>`.
+
+   Either way, tell the user at the end that the CLI is out of date and
+   reinstalling it removes this detour.
+
+5. **Relay what did not land.** Before you propose, show the user anything in
+   `rejected` or `failed`. Relay each rejection's `message`; don't interpret its
+   `code`. Objects over 25 MB, or past the 100 MB total, come back in `rejected`
+   and will NOT be attached.
+
+   Do not decide for them. Offer: retry, propose without it, or cancel.
+
+   If they choose to proceed without it, **do not re-run the attach step.** Keep
+   the evidence set exactly as declared and propose as normal. The server records
+   the absent object as `missing` and names it on the proposal, so the approver
+   sees the gap. Attaching again without that object is the one action that would
+   hide it.
 
 6. **Propose.** Call `proposals.propose` as the skill directs, with:
 

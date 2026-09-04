@@ -249,6 +249,7 @@ def test_onboarding_still_routes_the_tidy_case_to_1b():
 
 PROPOSE = ROOT / "skills" / "propose" / "SKILL.md"
 PROPOSE_COMMAND = ROOT / "commands" / "propose.md"
+SCRIPT = ROOT / "skills" / "propose" / "scripts" / "collect_evidence.py"
 
 
 def propose_description():
@@ -434,6 +435,76 @@ def test_propose_does_not_hardcode_python3_in_its_instructions():
         "not run on Windows. Use the `<py> <script>` placeholder."
     )
     assert "<py> <script>" in body, "the `<py> <script>` placeholder is gone"
+
+
+def test_propose_attaches_evidence_through_the_cli():
+    """The attach step must name `dough evidence upload`, not a plan file.
+
+    The plan file was a join the MODEL performed by hand: `declare` printed
+    `paths` to stdout, `evidence.begin` returned `uploads` over MCP, and the
+    model was the only place the two met. Step 5 told it to write the join to a
+    file and named no tool for the job, so the agent improvised — on macOS, a
+    shell heredoc carrying a signed-URL JWT, which the auto-mode classifier
+    refused. `dough evidence upload` does the join itself, so no URL and no token
+    ever reaches the model.
+    """
+    body = PROPOSE_COMMAND.read_text(encoding="utf-8").split("---", 2)[-1]
+    assert "dough evidence upload" in body, (
+        "commands/propose.md no longer routes evidence through the CLI - the "
+        "model is back to joining `paths` and `uploads` by hand"
+    )
+
+
+def test_propose_forbids_building_the_plan_file_with_a_heredoc():
+    """The fallback still writes a plan file. It must name the tool for it.
+
+    An instruction that says "write a file" and names no tool is what produced
+    the improvisation in the first place. On the fallback path the plan still
+    embeds a signed URL and token, so a heredoc there fails exactly as it did
+    before.
+    """
+    body = PROPOSE_COMMAND.read_text(encoding="utf-8").split("---", 2)[-1]
+    assert "Write tool" in body, (
+        "the fallback does not name the Write tool, so an agent will improvise "
+        "the plan file again"
+    )
+    assert "heredoc" in body, (
+        "the fallback no longer warns against a shell heredoc - that is the "
+        "exact command the auto-mode classifier refuses"
+    )
+
+
+def test_propose_allows_a_file_writing_tool():
+    """`allowed-tools` must permit the fallback's file write.
+
+    A rule that never matches is not a no-op: the call falls through to whatever
+    the permission mode does with an unauthorized tool, which in auto mode is a
+    classifier that refuses. The fallback writes a plan file, so `Write` has to
+    be allowed or the fallback fails the same way the heredoc did.
+    """
+    tools = allowed_tools(PROPOSE_COMMAND)
+    assert "Write" in tools, (
+        "commands/propose.md does not allow Write - the evidence fallback writes "
+        "a plan file and would be refused in auto mode"
+    )
+    assert "Bash(dough:*)" in tools, (
+        "commands/propose.md dropped Bash(dough:*) - the primary evidence path "
+        "is a `dough` invocation and nothing else authorizes it"
+    )
+
+
+def test_propose_keeps_the_python_fallback_runnable():
+    """The CLI path needs a binary that may not be installed yet.
+
+    `dough evidence` ships in a CLI release that rolls out separately from this
+    plugin, and `dough plugin refresh` does not upgrade the binary. A new plugin
+    against an old CLI must not dead-end, so the script and its interpreter rules
+    stay until that skew is gone.
+    """
+    body = PROPOSE_COMMAND.read_text(encoding="utf-8").split("---", 2)[-1]
+    assert "<py> <script> upload --plan" in body, "the fallback upload is gone"
+    assert "<py> <script> declare" in body, "the fallback declare is gone"
+    assert SCRIPT.exists(), "collect_evidence.py was deleted while the fallback still needs it"
 
 
 def test_every_dough_mcp_tool_is_allowed_under_all_three_server_names():
