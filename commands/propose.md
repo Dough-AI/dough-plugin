@@ -55,7 +55,8 @@ read the script's full output rather than truncating it.
    objects. The transcript alone is often 1–2 MB.
 
 3. **Confirm.** Show the user what will be attached — every kept file with its
-   size and your note, plus the transcript. This ships their local files and
+   size and your note, **and the session transcript**, which always goes and is
+   usually the largest object of the lot. This ships their local files and
    their entire session to a server; they get to see that and say no. Wait for a
    clear yes.
 
@@ -69,9 +70,17 @@ read the script's full output rather than truncating it.
    dough evidence upload --session <sessionId from the scan> --file <kept path> --file <kept path>
    ```
 
-   Run it **bare**, like the script — no `cd … &&`, no pipe. It hashes each
-   file, freezes the transcript, declares every object to the server, uploads
-   them, and prints:
+   Run it **bare**, like the script — no `cd … &&`, no pipe.
+
+   **It sends the session transcript as well as each `--file`.** `--session`
+   only chooses which transcript; there is no way to opt out, and the transcript
+   is usually the largest object by far. Say so at step 3, and do not describe
+   this command as uploading only the files you named. The command itself prints
+   what it is about to send, e.g.
+   `Attaching 2 objects: sess.jsonl (410 KB), backing.csv (8 B)`.
+
+   It hashes each file, freezes the transcript, declares every object to the
+   server, uploads them, and prints:
 
    ```json
    { "evidenceId": "ev_…", "uploaded": [...], "failed": [...], "rejected": [...] }

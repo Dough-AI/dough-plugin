@@ -455,6 +455,26 @@ def test_propose_attaches_evidence_through_the_cli():
     )
 
 
+def test_propose_says_the_transcript_is_always_attached():
+    """`--file` does not say the session transcript rides along, but it always does.
+
+    A reader of `dough evidence upload --file backing.csv` would reasonably
+    conclude one file was sent. The transcript is usually the largest object of
+    the lot, and the confirmation gate is where a person agrees to ship it, so
+    both the attach step and the confirmation have to name it.
+    """
+    body = PROPOSE_COMMAND.read_text(encoding="utf-8").split("---", 2)[-1]
+    attach = body[body.index("4. **Attach"):body.index("5. **Relay")]
+    assert "session transcript as well" in attach, (
+        "the attach step does not say the transcript is sent alongside --file"
+    )
+    confirm = body[body.index("3. **Confirm"):body.index("4. **Attach")]
+    assert "transcript" in confirm, (
+        "the confirmation no longer names the transcript - that is the moment a "
+        "person agrees to ship their whole session"
+    )
+
+
 def test_propose_forbids_building_the_plan_file_with_a_heredoc():
     """The fallback still writes a plan file. It must name the tool for it.
 
