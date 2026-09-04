@@ -115,5 +115,47 @@ def test_does_not_reference_the_removed_shell_triage():
     assert "triage.sh" not in flat(SKILL)
 
 
+def test_says_gws_does_not_open_a_browser_and_who_must():
+    """gws prints the URL and blocks; it opens nothing, on any platform.
+
+    Its own --help claims "(opens browser)", which is what made this look like
+    it worked on macOS (someone opened the URL by hand) and hang on a clean
+    Windows machine. The skill must say the URL has to be opened, and give the
+    per-platform command.
+    """
+    text = flat(SKILL)
+    assert near(text, "does NOT open a browser", "print")
+    assert "Start-Process" in text, "no Windows way to open the URL"
+    assert re.search(r"\bopen \"?<url>", text) or "open \"<url>\"" in text
+
+
+def test_never_launches_a_specific_browser():
+    """A vanilla Windows machine has no Chrome, so the launch must go through the
+    DEFAULT handler.
+
+    Naming a browser in prose is fine and useful ("Edge, Chrome, whatever they
+    have set"); naming one as a LAUNCH TARGET is the bug. Only the latter is
+    asserted here — the blunter version failed on this file's own explanation.
+    """
+    text = flat(SKILL)
+    assert near(text, "Start-Process", "default")
+    launches_named_browser = re.search(
+        r"(Start-Process|open)\s+(-a\s+)?[\"\']?(google\s*)?(chrome|msedge|firefox|safari)",
+        text,
+        re.I,
+    )
+    assert not launches_named_browser, (
+        "the skill launches a named browser; it must launch the default handler"
+    )
+
+
+def test_powershell_continuation_is_not_a_backslash():
+    """PowerShell continues lines with a backtick. The macOS backslash form is
+    malformed on Windows, so the skill must give a separate Windows command."""
+    text = flat(SKILL)
+    assert "powershell" in text.lower()
+    assert near(text, "powershell", "gws auth login")
+
+
 def test_credentials_are_never_printed():
     assert near(flat(SKILL), "Never print", "file") or "Never print the file" in flat(SKILL)

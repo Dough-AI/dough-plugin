@@ -93,6 +93,8 @@ transcript.
 
 ## Stage 3 — authorise
 
+**macOS**
+
 ```sh
 OAUTHLIB_INSECURE_TRANSPORT=1 gws auth login --scopes \
   https://www.googleapis.com/auth/spreadsheets,\
@@ -100,12 +102,51 @@ https://www.googleapis.com/auth/documents,\
 https://www.googleapis.com/auth/drive.file
 ```
 
-`OAUTHLIB_INSECURE_TRANSPORT=1` must be in the **same** invocation — the loopback
-redirect needs it. The CLI binds an OS-assigned ephemeral port, not 8080.
+**Windows** — PowerShell continues lines with a backtick, not a backslash, so
+the macOS form above is malformed there. Simplest is one line:
 
-Before opening the browser, tell the user in plain language what they are about
-to approve: read and write their Sheets and Docs, and create files in Drive.
-Mention that they can revoke any time at https://myaccount.google.com/permissions.
+```powershell
+$env:OAUTHLIB_INSECURE_TRANSPORT = "1"
+gws auth login --scopes "https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.file"
+```
+
+`OAUTHLIB_INSECURE_TRANSPORT=1` must be set for the same invocation — the
+loopback redirect needs it. The CLI binds an OS-assigned ephemeral port, not
+8080.
+
+### You must open the URL yourself
+
+**`gws` does NOT open a browser, on any platform.** Its `--help` says "(opens
+browser)", but the binary only prints:
+
+```
+Open this URL in your browser to authenticate:
+
+  https://accounts.google.com/o/oauth2/auth?...
+```
+
+and then blocks on its loopback server. Nothing else happens. If you wait for a
+browser that never appears, the command simply hangs until it times out — which
+is exactly how this failed on a clean Windows machine.
+
+So capture that URL and open it:
+
+- **macOS:** `open "<url>"`
+- **Windows:** `Start-Process "<url>"`
+
+Both use the user's **default** browser — Edge, Chrome, whatever they have set.
+Never name a specific browser: a vanilla Windows machine has no Chrome, and
+hardcoding one is how this breaks.
+
+**Also print the URL** so the user can paste it if the launch is blocked (a
+locked-down desktop, a remote session, an unusual default-handler setup). Do not
+ask them to retype it — the scope query string is long and wraps.
+
+### While the tab loads
+
+Tell the user in plain language what they are approving: read and write their
+Sheets and Docs, and create files in Drive. Mention they can revoke any time at
+https://myaccount.google.com/permissions.
 
 Expect a **"Google hasn't verified this app"** screen → Advanced → Continue.
 That is normal and expected; do not treat it as an error.
