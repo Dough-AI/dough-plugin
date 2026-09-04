@@ -8,7 +8,7 @@ description: Connect this machine to Google Workspace so you can read and write 
 Gets the `gws` CLI installed and authorised so this session can read and write
 the user's Google Sheets, Docs, and Drive files.
 
-**Run `scripts/triage.sh` first.** It tells you which of the four stages you
+**Run `scripts/triage.py` first.** It tells you which of the four stages you
 actually need, and it is read-only — it never installs, writes, or authenticates.
 
 ```sh
