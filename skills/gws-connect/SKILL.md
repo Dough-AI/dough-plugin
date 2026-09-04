@@ -36,71 +36,39 @@ both, and never silently.
 - If it belongs to **a third party**, triage says `FOREIGN_CLIENT`. Overwriting
   would break whatever installed it. **Stop and ask the user which they want.**
 
-## Stage 1 — install the binary
+## Stage 1 — the binary
 
-**Supported: macOS and Windows.** Skip this stage if triage already found `gws`.
+**The Dough installer provides `gws`.** It is installed as part of setup, but
+deliberately **not connected** — connecting is this skill's job, because every
+Google consent permanently consumes one of 100 lifetime slots on our OAuth app
+and should be spent only by someone who actually wants a Sheet.
 
-Show the command before running it. Releases live at
-https://github.com/googleworkspace/cli/releases/latest — about 6MB, and every
-asset ships a `.sha256` beside it. **Verify the checksum before running the
-binary.**
+So there is nothing to install here. If triage reports no binary, the machine
+was set up before gws was added, or the step was skipped. Re-running the
+installer is the fix — it is idempotent, and re-running is also how it updates:
 
-### macOS
-
-Fast path, if brew is present:
-
+**macOS**
 ```sh
-brew install googleworkspace-cli
+curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh
 ```
 
-Otherwise download the asset for the architecture — `aarch64-apple-darwin` for
-Apple Silicon, `x86_64-apple-darwin` for Intel — and unpack it:
-
-```sh
-mkdir -p ~/.local/bin
-curl -fsSL -o /tmp/gws.tar.gz "<asset url>"
-curl -fsSL -o /tmp/gws.sha256 "<asset url>.sha256"
-shasum -a 256 -c /tmp/gws.sha256      # must print OK
-tar -xzf /tmp/gws.tar.gz -C ~/.local/bin
-chmod +x ~/.local/bin/gws
-```
-
-### Windows
-
-Asset: `google-workspace-cli-x86_64-pc-windows-msvc.zip`.
-
+**Windows**
 ```powershell
-$dir = "$env:LOCALAPPDATA\Programs\gws"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Invoke-WebRequest -Uri "<asset url>" -OutFile "$env:TEMP\gws.zip"
-Invoke-WebRequest -Uri "<asset url>.sha256" -OutFile "$env:TEMP\gws.sha256"
-# compare against the .sha256 contents before continuing
-(Get-FileHash "$env:TEMP\gws.zip" -Algorithm SHA256).Hash
-Expand-Archive -Path "$env:TEMP\gws.zip" -DestinationPath $dir -Force
+irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex
 ```
 
-Add `$dir` to the **user** PATH (no admin needed):
+Then re-run triage. Do **not** download or install `gws` yourself: the installer
+verifies the published checksum, proves the binary runs before placing it, and
+handles PATH on both platforms. Reproducing that here would be a second,
+untested copy of logic that already exists.
 
-```powershell
-[Environment]::SetEnvironmentVariable(
-  "PATH", "$([Environment]::GetEnvironmentVariable('PATH','User'));$dir", "User")
-```
+In particular, **do not install via `npm`** even if it looks quicker. It works,
+but nvm/fnm shims are absent from non-interactive shells, so `gws` then vanishes
+on the next tool call.
 
-A new PATH entry is not visible to already-running processes — if `gws` is not
-found immediately afterwards, **invoke it by absolute path** rather than asking
-the user to restart their terminal mid-task.
-
-### Do not install via npm
-
-It works, but nvm/fnm shims are absent from non-interactive shells, so `gws`
-then vanishes on the next tool call. The release binary has no such problem.
-
-### Verify
-
-Run `gws --version` **in a fresh non-interactive shell** (`bash -c 'gws --version'`
-on macOS). If that fails while an interactive shell succeeds, the install
-directory is not on the non-interactive `PATH` — use the absolute path for the
-rest of the session and say so.
+If `gws` is present but not on the PATH a non-interactive shell sees, use its
+absolute path for the rest of the session and say so — do not ask the user to
+restart their terminal mid-task.
 
 ## Stage 2 — fetch the client config
 
