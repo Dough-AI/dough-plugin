@@ -1,7 +1,7 @@
 {
   "name": "dough",
   "displayName": "Dough",
-  "version": "0.25.1",
+  "version": "0.26.0",
   "description": "Build and run Dough datalake analyses from Claude Code: explore your data lake, write read-only SQL, enrich with dimension mappings, upload a CSV as a table, materialize calculated tables, and build dashboards your team can open at a URL.",
   "author": {
     "name": "Dough",

@@ -475,56 +475,71 @@ def test_propose_says_the_transcript_is_always_attached():
     )
 
 
-def test_propose_forbids_building_the_plan_file_with_a_heredoc():
-    """The fallback still writes a plan file. It must name the tool for it.
+def test_propose_has_no_plan_file_fallback_left():
+    """The plan-file path is gone, and must not come back by accident.
 
-    An instruction that says "write a file" and names no tool is what produced
-    the improvisation in the first place. On the fallback path the plan still
-    embeds a signed URL and token, so a heredoc there fails exactly as it did
-    before.
+    It existed so a pre-0.1.46 CLI could still attach evidence: declare with the
+    script, mint over MCP, then join the two halves into a file the script
+    uploaded. That join is the seam the whole feature was built to remove - the
+    plan embeds a signed URL and token, and an agent writing a shell command that
+    carries one is refused outright by the auto-mode classifier.
+
+    Asserting the ABSENCE of each half, rather than the presence of the new path,
+    is deliberate: a reintroduced fallback would sit alongside a perfectly healthy
+    `dough evidence upload` instruction and pass any test that only checked the
+    happy path.
     """
     body = PROPOSE_COMMAND.read_text(encoding="utf-8").split("---", 2)[-1]
-    assert "Write tool" in body, (
-        "the fallback does not name the Write tool, so an agent will improvise "
-        "the plan file again"
+    assert "<py> <script> upload --plan" not in body, "the plan-file upload is back"
+    assert "<py> <script> declare" not in body, "the script declare step is back"
+    assert "Write tool" not in body, "something writes a file again - the plan file?"
+    assert "heredoc" not in body, (
+        "the heredoc warning is back, which means the plan file it warned about is too"
     )
-    assert "heredoc" in body, (
-        "the fallback no longer warns against a shell heredoc - that is the "
-        "exact command the auto-mode classifier refuses"
+    # scan still runs through the script; only declare/upload moved to the CLI.
+    assert "<py> <script> scan" in body, "step 1 lost its scan"
+    assert SCRIPT.exists(), "collect_evidence.py was deleted but scan still needs it"
+
+
+def test_propose_blocks_up_front_when_the_cli_is_too_old():
+    """An old CLI must fail BEFORE any work, not detour around the failure.
+
+    The gate has to come before the scan. Discovering the CLI is too old at the
+    attach step means the user has already been asked to approve shipping their
+    whole session, for a proposal that then cannot carry it - and the previous
+    behaviour at that point was to silently take the older path and mention it
+    afterwards, which is what let a stale CLI persist indefinitely.
+    """
+    body = PROPOSE_COMMAND.read_text(encoding="utf-8").split("---", 2)[-1]
+    assert "dough evidence --help" in body, "no CLI capability check at all"
+    assert body.index("dough evidence --help") < body.index("1. **Scan"), (
+        "the CLI check runs after the scan - by then the user has already been "
+        "asked to confirm shipping their session"
     )
+    # Both platforms, or the check strands the users it catches.
+    assert "install.sh | sh" in body, "the failure does not give the macOS command"
+    assert "install.ps1 | iex" in body, "the failure does not give the Windows command"
 
 
-def test_propose_allows_a_file_writing_tool():
-    """`allowed-tools` must permit the fallback's file write.
+def test_propose_allowlist_matches_what_it_actually_calls():
+    """A stale allowlist entry is not harmless.
 
-    A rule that never matches is not a no-op: the call falls through to whatever
-    the permission mode does with an unauthorized tool, which in auto mode is a
-    classifier that refuses. The fallback writes a plan file, so `Write` has to
-    be allowed or the fallback fails the same way the heredoc did.
+    `Write` and `proposals.evidence.begin` were here only for the plan-file
+    fallback. Leaving them once it is gone is how a removed path quietly stays
+    reachable - and `Bash(dough:*)` is now the ONLY thing authorizing the evidence
+    upload, so its loss would break the primary path with a permission refusal
+    rather than an error.
     """
     tools = allowed_tools(PROPOSE_COMMAND)
-    assert "Write" in tools, (
-        "commands/propose.md does not allow Write - the evidence fallback writes "
-        "a plan file and would be refused in auto mode"
-    )
     assert "Bash(dough:*)" in tools, (
-        "commands/propose.md dropped Bash(dough:*) - the primary evidence path "
-        "is a `dough` invocation and nothing else authorizes it"
+        "commands/propose.md dropped Bash(dough:*) - the evidence path is a "
+        "`dough` invocation and nothing else authorizes it"
     )
-
-
-def test_propose_keeps_the_python_fallback_runnable():
-    """The CLI path needs a binary that may not be installed yet.
-
-    `dough evidence` ships in a CLI release that rolls out separately from this
-    plugin, and `dough plugin refresh` does not upgrade the binary. A new plugin
-    against an old CLI must not dead-end, so the script and its interpreter rules
-    stay until that skew is gone.
-    """
-    body = PROPOSE_COMMAND.read_text(encoding="utf-8").split("---", 2)[-1]
-    assert "<py> <script> upload --plan" in body, "the fallback upload is gone"
-    assert "<py> <script> declare" in body, "the fallback declare is gone"
-    assert SCRIPT.exists(), "collect_evidence.py was deleted while the fallback still needs it"
+    assert "Write" not in tools, "Write is back; it existed only for the plan file"
+    assert not [t for t in tools if t.endswith("proposals__evidence__begin")], (
+        "evidence.begin is allowlisted again - the plugin no longer calls it, and "
+        "the server is due to de-expose it (USE-586)"
+    )
 
 
 def test_every_dough_mcp_tool_is_allowed_under_all_three_server_names():

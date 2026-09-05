@@ -1,7 +1,7 @@
 ---
 description: Raise a write to a connected accounting system for human approval, with the session and its evidence attached.
 argument-hint: [what to propose, e.g. "accrue Sept contractor invoices"]
-allowed-tools: Write, Bash(python:*), Bash(python3:*), Bash(py:*), Bash(dough:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__proposals__evidence__begin, mcp__dough__tools__describe, mcp__plugin_dough_dough__proposals__propose, mcp__plugin_dough_dough__proposals__actions, mcp__plugin_dough_dough__proposals__evidence__begin, mcp__plugin_dough_dough__tools__describe, mcp__claude_ai_dough__proposals__propose, mcp__claude_ai_dough__proposals__actions, mcp__claude_ai_dough__proposals__evidence__begin, mcp__claude_ai_dough__tools__describe
+allowed-tools: Bash(python:*), Bash(python3:*), Bash(py:*), Bash(dough:*), mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__tools__describe, mcp__plugin_dough_dough__proposals__propose, mcp__plugin_dough_dough__proposals__actions, mcp__plugin_dough_dough__tools__describe, mcp__claude_ai_dough__proposals__propose, mcp__claude_ai_dough__proposals__actions, mcp__claude_ai_dough__tools__describe
 ---
 
 Load the `propose` skill and follow it to build the entry. $ARGUMENTS
@@ -26,13 +26,38 @@ no prompt, no approval, the evidence simply never uploads and the proposal goes
 out with the audit trail missing. Keep the invocation to a single command and
 read the script's full output rather than truncating it.
 
+**Before anything else, check the CLI can attach evidence.** Run:
+
+```
+dough evidence --help
+```
+
+If that fails — `dough: command not found`, or `unknown command 'evidence'` —
+**stop here.** Do not scan, do not curate, and do not propose. Attaching evidence
+needs dough CLI **v0.1.46 or later**, and there is no longer a second path: the
+older three-step route through `proposals.evidence.begin` has been removed.
+
+Tell the user their CLI is too old and give them the line for their platform:
+
+- macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
+- Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
+
+Then have them open a new terminal and re-run `/dough:propose`.
+
+**Do not propose without evidence instead.** An unbacked proposal is
+indistinguishable from a backed one to whoever approves it, which is the failure
+this command exists to prevent. Failing here, with a command the user can paste,
+is the better outcome.
+
 0. **Refresh the plugin first.** Run `dough plugin refresh`. What a proposal
    may contain changes with the server, and this file is pinned on disk — so the
    copy you are reading can be older than the catalog you are proposing into.
    The refresh is best-effort and must never block the proposal. If `dough` is
-   missing, is too old to know the `plugin` command, or the download fails or is
-   slow, note it in one line and go straight to step 1 — do not wait on it, and
-   do not let a slow network hold up the proposal.
+   too old to know the `plugin` command, or the download fails or is slow, note
+   it in one line and go straight to step 1 — do not wait on it, and do not let a
+   slow network hold up the proposal. (A *missing* `dough` is not this case: the
+   check above has already stopped, because nothing downstream can run without
+   it.)
 
    If it reports a refresh (`X -> Y`), the new guidance is **not** what you are
    following right now — a refresh never applies to the session that ran it. Do
@@ -95,21 +120,8 @@ read the script's full output rather than truncating it.
    gap. Each URL accepts exactly one successful PUT; a *failed* attempt leaves
    nothing behind, so the retries are safe as written.
 
-   **If `dough` does not know the `evidence` command**, the binary predates it.
-   Say so in one line and use the older path instead — it still works:
-
-   - `<py> <script> declare --files <kept paths>` — emits `objects[]` and a
-     `paths` map.
-   - Pass `objects` to `proposals.evidence.begin` with the `sessionId`.
-   - Write `{ "uploads": [ …from evidence.begin… ], "paths": { …from declare… } }`
-     to a file **with the Write tool.** Do NOT build it with a shell heredoc
-     (`cat > … <<'EOF'`): the plan embeds a signed URL and token, and that
-     command is refused by the auto-mode classifier — which is the whole reason
-     the `dough evidence upload` path exists.
-   - Then `<py> <script> upload --plan <plan>`.
-
-   Either way, tell the user at the end that the CLI is out of date and
-   reinstalling it removes this detour.
+   If this command fails because `dough` does not know `evidence`, you skipped
+   the check at the top. Go back to it: there is no fallback to improvise.
 
 5. **Relay what did not land.** Before you propose, show the user anything in
    `rejected` or `failed`. Relay each rejection's `message`; don't interpret its
@@ -147,11 +159,14 @@ Never inline file contents or transcript text into the tool call itself. The
 whole point of this flow is that the bytes travel out of band; pasting them back
 into the payload defeats it and will not fit.
 
-If `proposals.evidence.begin` is not in your tool list, **stop and say so.** Any
-org that can call `proposals.propose` can attach evidence — the two ship together
-— so its absence means something is out of date, not that this org lacks the
-feature. Most likely the plugin is newer than the Dough server it is talking to,
-or the MCP connection is stale and needs reconnecting.
+If `proposals.propose` is not in your tool list, **stop and say so.** Its absence
+means something is out of date, not that this org lacks the feature. Most likely
+the plugin is newer than the Dough server it is talking to, or the MCP connection
+is stale and needs reconnecting.
+
+Evidence no longer travels over MCP at all — `dough evidence upload` talks to the
+server directly — so `proposals.evidence.begin` is not needed in your tool list
+and its absence is not a problem.
 
 Do not quietly propose without the evidence. An unbacked proposal is
 indistinguishable from a backed one to whoever approves it, which is the failure

@@ -11,6 +11,11 @@ Assertions are invariants, not transcripts of behaviour — a model may
 legitimately order its work differently. What must hold is that evidence was
 declared before it was proposed, that the bytes really arrived intact, and that
 the proposal payload stayed small.
+
+Evidence travels via `dough evidence upload`, not over MCP, so a fake `dough`
+(tests/fake_dough.py) stands in for the binary. The fake MCP still SERVES
+`proposals.evidence.begin`, deliberately: the removed path has to remain
+available for `test_the_removed_mcp_path_is_never_taken` to be worth anything.
 """
 
 import hashlib
@@ -27,6 +32,7 @@ import pytest
 
 REPO = Path(__file__).parent.parent
 FAKE_MCP = REPO / "tests" / "fake_dough_mcp.py"
+FAKE_CLI = REPO / "tests" / "fake_dough.py"
 COMMAND = REPO / "commands" / "propose.md"
 
 # The transcript alone is hundreds of KB. If any of it got inlined into the tool
@@ -129,6 +135,22 @@ def run_agent(tmp_path_factory):
     sink = start_sink(log, uploads)
     sink_url = f"http://127.0.0.1:{sink.server_address[1]}"
 
+    # `dough evidence upload` is now the ONLY evidence path, so the agent needs a
+    # `dough` on PATH. The real binary is built from Dough-Alpha and needs a
+    # login; tests/fake_dough.py stands in at the interface (and is covered by
+    # tests/test_fake_dough.py, which runs without DOUGH_E2E).
+    bin_dir = work / "bin"
+    bin_dir.mkdir()
+    shim = bin_dir / "dough"
+    shim.write_text(
+        "#!/bin/sh\n"
+        f'DOUGH_FAKE_LOG="{log}" DOUGH_FAKE_SINK="{sink_url}" '
+        f'exec "{sys.executable}" "{FAKE_CLI}" "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    agent_env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+
     mcp_config = work / "mcp.json"
     mcp_config.write_text(
         json.dumps(
@@ -153,13 +175,16 @@ def run_agent(tmp_path_factory):
                 "claude", "-p", prompt,
                 "--mcp-config", str(mcp_config),
                 "--strict-mcp-config",
-                "--allowedTools", "Bash", "Read", "Write",
-                "mcp__dough__proposals__evidence__begin",
+                # Deliberately WITHOUT Write and without evidence.begin. Both
+                # existed only for the removed plan-file path; leaving either
+                # here would let a regression pass by taking the old route.
+                "--allowedTools", "Bash", "Read",
                 "mcp__dough__proposals__propose",
                 "--permission-mode", "bypassPermissions",
                 *extra,
             ],
             cwd=work,
+            env=agent_env,
             capture_output=True,
             text=True,
             timeout=600,
@@ -203,6 +228,15 @@ def calls(entries, tool):
     return [e for e in entries if e["kind"] == "tool_call" and e["tool"] == tool]
 
 
+def declarations(entries):
+    """What `dough evidence upload` declared, in order.
+
+    Evidence no longer passes through an MCP call, so the declaration is logged
+    by the CLI rather than observed on the wire. Same objects[], same meaning.
+    """
+    return [e for e in entries if e["kind"] == "declare"]
+
+
 def test_nothing_is_uploaded_before_the_user_confirms(run_agent):
     """The gate is the whole consent story: this command ships a user's local
     files and their entire session to a server. It must not move until asked."""
@@ -213,15 +247,29 @@ def test_nothing_is_uploaded_before_the_user_confirms(run_agent):
 
 
 def test_evidence_is_declared_before_it_is_proposed(run_agent):
-    began = calls(run_agent["entries"], "proposals__evidence__begin")
+    began = declarations(run_agent["entries"])
     proposed = calls(run_agent["entries"], "proposals__propose")
-    assert began, "never called proposals.evidence.begin"
+    assert began, "never ran `dough evidence upload`"
     assert proposed, "never called propose"
     assert began[0]["_line"] < proposed[0]["_line"]
 
 
+def test_the_removed_mcp_path_is_never_taken(run_agent):
+    """The fallback is gone from the instructions; prove it is gone in practice.
+
+    Without this, an agent that ignored the CLI and reached for the old tool
+    would still satisfy every other assertion here — the evidence would arrive,
+    just by the route the whole change exists to close. The tool is still served
+    by the fake MCP precisely so that taking it would SUCCEED, which is what
+    makes this assertion mean something.
+    """
+    assert not calls(run_agent["entries"], "proposals__evidence__begin"), (
+        "took the removed proposals.evidence.begin path instead of the CLI"
+    )
+
+
 def test_every_declared_object_carries_a_real_sha256(run_agent):
-    objects = calls(run_agent["entries"], "proposals__evidence__begin")[0]["args"]["objects"]
+    objects = declarations(run_agent["entries"])[0]["objects"]
     assert objects, "declared nothing"
     for o in objects:
         assert re.fullmatch(r"[0-9a-f]{64}", o["sha256"]), o
@@ -229,12 +277,12 @@ def test_every_declared_object_carries_a_real_sha256(run_agent):
 
 
 def test_the_session_transcript_is_among_the_evidence(run_agent):
-    objects = calls(run_agent["entries"], "proposals__evidence__begin")[0]["args"]["objects"]
+    objects = declarations(run_agent["entries"])[0]["objects"]
     assert [o for o in objects if o["role"] == "transcript"], objects
 
 
 def test_the_uploaded_bytes_match_what_was_declared(run_agent):
-    objects = calls(run_agent["entries"], "proposals__evidence__begin")[0]["args"]["objects"]
+    objects = declarations(run_agent["entries"])[0]["objects"]
     uploads = {e["key"]: e for e in run_agent["entries"] if e["kind"] == "upload"}
     assert uploads, "nothing was uploaded"
     for o in objects:
@@ -244,7 +292,6 @@ def test_the_uploaded_bytes_match_what_was_declared(run_agent):
 
 
 def test_the_proposal_cites_the_evidence_it_uploaded(run_agent):
-    began = calls(run_agent["entries"], "proposals__evidence__begin")[0]
     proposed = calls(run_agent["entries"], "proposals__propose")[0]
     transcript = proposed["args"].get("transcript") or {}
     assert transcript.get("evidenceId"), "propose carried no evidenceId"
