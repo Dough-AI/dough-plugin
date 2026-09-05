@@ -52,6 +52,13 @@ It needs **Dough CLI v0.1.39 or later** (`dough --version`). On an older binary
 update, so it reads as a broken plugin when it is an old CLI. Re-running the
 installer (section C) fixes it; nothing about the plugin needs reinstalling.
 
+**From plugin 0.26.0, `/dough:propose` needs Dough CLI v0.1.46 or later.** It
+attaches evidence with `dough evidence upload`, and the older route through
+`proposals.evidence.begin` has been removed rather than kept as a fallback — so
+on an older binary the command stops up front and asks you to update, instead of
+quietly taking a slower path. Updating the plugin does NOT update the CLI: they
+are released separately, so run the installer in section C as well.
+
 From a terminal, without Claude Code, the same thing:
 
 ```
