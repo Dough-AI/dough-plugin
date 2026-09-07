@@ -44,6 +44,8 @@ jobs:
           pip install ruff
           ruff check --select E9,F63,F7,F82 .
       - name: pytest
+        # The repository declares no dependency manifest, so test deps are
+        # listed here. openpyxl is required by tests/test_dough_excel.py.
         run: |
-          pip install pytest
+          pip install pytest openpyxl
           pytest tests -q
