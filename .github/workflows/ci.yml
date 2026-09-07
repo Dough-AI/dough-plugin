@@ -1,0 +1,49 @@
+# CI for the published plugin. The version check is the load-bearing one:
+# the version-gated desktop client reads plugins[0].version from
+# marketplace.json, so if it drifts from plugin.json the release merges
+# cleanly and is then uninstallable, with the CLI's SHA fallback hiding it.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  versions:
+    name: Plugin versions agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: plugin.json and marketplace.json must declare the same version
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          p = json.load(open(".claude-plugin/plugin.json"))
+          m = json.load(open(".claude-plugin/marketplace.json"))
+          pv = p.get("version")
+          mv = (m.get("plugins") or [{}])[0].get("version")
+          print(f"plugin.json      version = {pv}")
+          print(f"marketplace.json version = {mv}")
+          if pv is None or mv is None:
+              sys.exit("FAIL: a version field is missing")
+          if pv != mv:
+              sys.exit("FAIL: versions disagree — the desktop client reads marketplace.json")
+          print("OK")
+          PY
+
+  python:
+    name: Lint and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Syntax and undefined-name check
+        run: |
+          pip install ruff
+          ruff check --select E9,F63,F7,F82 .
+      - name: pytest
+        run: |
+          pip install pytest
+          pytest tests -q
