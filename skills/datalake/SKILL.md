@@ -151,6 +151,19 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
 - If the source is a spreadsheet or document whose structure isn't settled —
   summary rows mixed into detail, wide month columns, formatting that carries
   meaning — use the **uploads** skill first to shape and verify the data.
+- **`tables.versions` says what a table was built from** — every upload to it,
+  newest first, with who made it, what they called it, and links to the files
+  behind it: the workbook or document that was converted (`sourceFileUrl`, with
+  `sourceFileName`), the CSV that was loaded (`sourceCsvUrl`), and the whole table
+  as it stood after that upload (`snapshotUrl`). Each is null when there is no such
+  file. This describes the TABLE, not a row.
+  - **Give the links to the person; you cannot open them.** They are Dough pages
+    behind a browser sign-in, and you hold an API token — fetching one returns a
+    sign-in page, not the file. Paste the URL and say what it is ("the workbook v3
+    was built from"), because the URL does not say.
+  - 50 per call, newest first. A `nextCursor` in the reply means there is older
+    history: pass it back as `cursor`. Most questions are answered by the first
+    page — page on only when the person is asking about older loads.
 
 ## 2. Analyze with your own SQL
 When no calculated table or saved query fits, `integrations.query` runs read-only

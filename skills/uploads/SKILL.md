@@ -232,7 +232,10 @@ Mechanics per datalake 1b. Conventions this skill adds:
     mode, missing `keyColumns`), fix the call and re-send the same
     `csvObjectPath` — do not upload the bytes again.
 - The workbook is **deleted with the table** — don't tell a user it survives
-  independently.
+  independently. While the table lives, it can be handed back: `tables.versions`
+  lists every upload with a link to its workbook and its CSV, which is how you
+  answer "can I see the spreadsheet this came from". The link opens in the
+  person's browser, not yours.
 - `tables.annotate` after load: **notes** carrying the grain, what was
   excluded and why, source caveats found in step 4, tie-out waivers, and
   unconfirmed assumptions (currency, draft-vs-final). Caveats live in notes,
