@@ -110,6 +110,61 @@ nothing has been written yet.
 6. **Call it, then relay** the reference (`PROP-…`), what it is waiting on, and
    where to act on it — all of which come back in the response.
 
+## Evidence-backed proposals
+
+Commands that require evidence, including `/dough:propose` and
+`/dough:proposal_fix`, must follow this entire section. Do not shorten it or
+quietly propose without evidence.
+
+1. **Check the CLI first.** Run `dough evidence --help`. If `dough` is missing or
+   does not know `evidence`, stop before scanning or proposing. Evidence requires
+   dough CLI v0.1.46 or later. Give the appropriate installer command, ask the
+   user to open a new terminal, and have them rerun their original command:
+
+   - macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
+   - Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
+
+2. **Refresh best-effort.** Run `dough plugin refresh`. A failure or unsupported
+   command must not block the proposal. If it updates the plugin, report that the
+   new copy applies only after `/reload-plugins` or an app restart; continue the
+   current flow using the live `tools.describe` schema.
+
+3. **Scan.** Run
+   `${CLAUDE_PLUGIN_ROOT}/skills/propose/scripts/collect_evidence.py scan` with
+   `python3` on macOS/Linux or `python` on Windows. Run it as one bare command—no
+   `cd`, pipe, or compound shell command—and read its complete output.
+
+4. **Curate and disclose.** Keep only files that substantiate the replacement.
+   Give each a one-line note. Show every retained file, its size and note, plus
+   the session transcript, which is always uploaded. State the limits: 25 MB per
+   object, 100 MB per set, and 64 objects. Obtain clear user consent before any
+   upload.
+
+5. **Upload once.** Run one bare command:
+
+   `dough evidence upload --session <sessionId> --file <kept path> --file <kept path>`
+
+   The command freezes and uploads the transcript too. It returns `evidenceId`,
+   `uploaded`, `failed`, and `rejected`, and declares every object before bytes
+   move so missing objects remain visible to the approver.
+
+6. **Handle incomplete uploads explicitly.** Show every `failed` and `rejected`
+   object and relay rejection messages without interpreting their codes. Offer
+   retry, proceed with the declared missing object, or cancel. If the user
+   proceeds, do not upload a new set that omits it; doing so would hide the gap.
+
+7. **Attach the reference.** Call `proposals.propose` with
+   `transcript: { evidenceId, sessionId, manifest }`. The manifest has one entry
+   per retained file with `key`, `filename`, `sha256`, `bytes`, `mime`, `role`,
+   and its note. Send the rationale separately. Never inline transcript or file
+   contents into MCP.
+
+8. **Recover safely.** For `invalid_evidence`, restart from disclosure and
+   consent with a new set. For `evidence_integrity`, redeclare and re-upload; do
+   not retry the consumed or mismatched set. If `proposals.propose` is absent,
+   stop and report a stale plugin/server or MCP connection rather than proposing
+   by another route.
+
 ## When it comes back refused
 
 Nothing is queued and there is nothing to withdraw — fix and call again. The
