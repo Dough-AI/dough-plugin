@@ -1,10 +1,14 @@
 ---
 description: Pick up a rejected or failed proposal, correct it, and raise an immutable replacement.
 argument-hint: <proposal id, PROP reference, or Dough proposal link>
-allowed-tools: Bash(python:*), Bash(python3:*), Bash(py:*), Bash(dough:*), mcp__dough__proposals__get, mcp__dough__proposals__propose, mcp__dough__proposals__actions, mcp__dough__tools__describe, mcp__plugin_dough_dough__proposals__get, mcp__plugin_dough_dough__proposals__propose, mcp__plugin_dough_dough__proposals__actions, mcp__plugin_dough_dough__tools__describe, mcp__claude_ai_dough__proposals__get, mcp__claude_ai_dough__proposals__propose, mcp__claude_ai_dough__proposals__actions, mcp__claude_ai_dough__tools__describe
+allowed-tools: Bash(python:*), Bash(python3:*), Bash(py:*), Bash(dough:*), mcp__dough__proposals__get, mcp__dough__proposals__propose, mcp__dough__tools__describe, mcp__plugin_dough_dough__proposals__get, mcp__plugin_dough_dough__proposals__propose, mcp__plugin_dough_dough__tools__describe, mcp__claude_ai_dough__proposals__get, mcp__claude_ai_dough__proposals__propose, mcp__claude_ai_dough__tools__describe
 ---
 
 Pick up and correct this proposal: $ARGUMENTS
+
+Load the `propose` skill before doing anything else. Its payload, rationale,
+assignment, `proposedVia`, and evidence rules all apply to the replacement; the
+steps below add only revision-specific behavior.
 
 1. Call `proposals.get` with the argument exactly as supplied. It accepts a UUID,
    `PROP-…` reference, or Dough proposal URL. Never fetch a supplied URL.
@@ -22,14 +26,12 @@ Pick up and correct this proposal: $ARGUMENTS
 5. Show the complete replacement and a concise `revisionNote` describing what
    changed. Show a readable before/after summary for changed fields. Get explicit
    confirmation before creating anything.
-6. Attach the CURRENT fixing session as new evidence. Follow the same evidence
-   safety gate as `/dough:propose`: first run `dough evidence --help`; stop with
-   the installer instructions if it is unavailable. Run
-   `${CLAUDE_PLUGIN_ROOT}/skills/propose/scripts/collect_evidence.py scan` with
-   `python3` on macOS/Linux or `python` on Windows, curate only files backing the
-   replacement, show the transcript and files with sizes/notes, and obtain the
-   user's confirmation before running `dough evidence upload`. Never inline file
-   or transcript contents into an MCP call.
+6. Attach the CURRENT fixing session as new evidence by following the complete
+   **Evidence-backed proposals** workflow in the loaded `propose` skill. It owns
+   the CLI check and installer stop, scan and curation, disclosure and consent,
+   the `dough evidence upload` invocation, partial-upload choices, manifest,
+   integrity retries, and out-of-band content rule. Never improvise a shortened
+   evidence path.
 7. Call `proposals.propose` with the newly confirmed fields, fresh transcript
    evidence, `derivedFrom` set to the original proposal reference, and the
    confirmed `revisionNote`. Do not copy old reviewer or approver assignments
@@ -39,4 +41,5 @@ Pick up and correct this proposal: $ARGUMENTS
    the replacement has posted unless its status is `posted`.
 
 If proposal creation reports `already_revised`, use the returned existing
-replacement. Do not retry into a second branch.
+`revisionId` to call `proposals.get`, then relay that proposal's reference,
+status, waiting-on text, and link. Do not retry into a second branch.
