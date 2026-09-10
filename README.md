@@ -23,7 +23,10 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
   out), `excel` (Dough-managed Excel workbooks: a visible `Dough`
   manifest sheet maps data sheets to saved queries, so Claude can refresh them
   without re-deriving anything — includes a bundled openpyxl script for
-  deterministic workbook writes), `propose` (raise a write to a connected
+  deterministic workbook writes), `google-sheets` (the same manifest contract
+  on a Google Sheet, written through the `gws` CLI — refresh clears managed
+  tabs in place so formulas on other tabs survive), `gws-connect` (get `gws`
+  installed and authorised for Sheets, Docs and Drive), `propose` (raise a write to a connected
   accounting system for human approval instead of performing it), and
   `run-agent` (open a published Dough agent inside the current session, so its
   own instructions and skills take over without leaving Claude; its scripts fetch
