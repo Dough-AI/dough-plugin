@@ -397,3 +397,87 @@ def test_upload_reports_failure_without_deciding_what_to_do(tmp_path):
     out = json.loads(r.stdout)
     assert out["failed"][0]["key"] == "f0"
     assert out["uploaded"] == []
+
+
+# --- Windows paths --------------------------------------------------------
+#
+# Every test above goes through the filesystem, so each one only ever exercises
+# the platform it runs on: on macOS and Linux CI they say nothing about whether
+# a Windows path is recognised as a path at all. It was not — `C:\Users\…` could
+# never match — so `dough propose` on Windows attached no file the user typed in
+# prose or opened in bash, silently. These are unit-level for that reason: they
+# assert the recognition, on any platform.
+
+
+def test_prose_matches_a_windows_absolute_path():
+    m = load_module()
+    text = r"book this from C:\Users\Administrator\Downloads\invoice.pdf please"
+    assert m.PATH_RE.findall(text) == [
+        r"C:\Users\Administrator\Downloads\invoice.pdf"
+    ]
+
+
+def test_prose_matches_a_forward_slash_windows_path():
+    """Windows accepts either separator, and tools print both."""
+    m = load_module()
+    assert m.PATH_RE.findall("see C:/temp/a.pdf") == ["C:/temp/a.pdf"]
+
+
+def test_prose_matches_a_unc_path():
+    """A UNC path is as absolute and as unambiguous as a drive-letter one."""
+    m = load_module()
+    text = r"the file is \\finance\share\2026\budget.xlsx"
+    assert m.PATH_RE.findall(text) == [r"\\finance\share\2026\budget.xlsx"]
+
+
+def test_prose_stops_a_windows_path_at_trailing_punctuation():
+    m = load_module()
+    assert m.PATH_RE.findall(r"see C:\temp\a.pdf, and then stop") == [r"C:\temp\a.pdf"]
+    assert m.PATH_RE.findall(r'quoted "C:\temp\b.pdf" here') == [r"C:\temp\b.pdf"]
+
+
+def test_prose_still_ignores_urls_and_relative_paths():
+    """The rule that a path must be absolute is the point; keep it."""
+    m = load_module()
+    assert m.PATH_RE.findall("fetch https://example.com/report.pdf now") == []
+    assert m.PATH_RE.findall("open ./notes/a.csv") == []
+    assert m.PATH_RE.findall("open notes.csv") == []
+
+
+def test_bash_keeps_windows_separators_when_tokenizing():
+    """shlex's posix mode reads `\\` as an escape, turning C:\\Users\\a.pdf into
+    C:Usersa.pdf — a path that then matches nothing, with no error."""
+    m = load_module()
+    found = m._bash_paths(r"head -c 20 C:\Users\Admin\invoice.pdf", r"C:\anywhere")
+    assert found == [r"C:\Users\Admin\invoice.pdf"]
+
+
+def test_bash_keeps_a_quoted_windows_path_whole():
+    m = load_module()
+    found = m._bash_paths(r'type "C:\Program Files\Dough\notes.csv"', r"C:\anywhere")
+    assert found == [r"C:\Program Files\Dough\notes.csv"]
+
+
+def test_bash_does_not_join_a_windows_absolute_path_to_the_cwd():
+    """os.path.isabs answers for the platform it runs on; a drive-letter path is
+    absolute whether or not this machine is Windows."""
+    m = load_module()
+    assert m._is_absolute(r"C:\Users\Admin\invoice.pdf")
+    assert m._is_absolute(r"\\server\share\a.xlsx")
+    assert m._is_absolute("/work/a.csv")
+    assert not m._is_absolute("notes/a.csv")
+
+
+def test_bash_still_resolves_a_relative_windows_token_against_the_cwd():
+    m = load_module()
+    found = m._bash_paths(r"type contractors.csv", r"C:\work")
+    assert found == [os.path.join(r"C:\work", "contractors.csv")]
+
+
+def test_excluded_parts_match_across_backslash_separators():
+    """EXCLUDED_PARTS splits on path parts, and on POSIX a backslash is just a
+    character — so a Windows .git path read here would sail straight through."""
+    m = load_module()
+    assert m._excluded(r"C:\repo\.git\COMMIT_EDITMSG")
+    assert m._excluded(r"C:\repo\node_modules\pkg\index.js")
+    assert not m._excluded(r"C:\repo\invoice.pdf")
