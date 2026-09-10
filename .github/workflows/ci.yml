@@ -9,6 +9,14 @@ on:
   push:
     branches: [main]
 
+# Least privilege for GITHUB_TOKEN, and it applies to every job below. Nothing
+# here writes: each job checks out, installs, and runs. Without this the token
+# carries whatever the repository default happens to be, which is how a workflow
+# that only ever reads ends up able to push -- flagged by CodeQL as
+# actions/missing-workflow-permissions.
+permissions:
+  contents: read
+
 jobs:
   versions:
     name: Plugin versions agree
