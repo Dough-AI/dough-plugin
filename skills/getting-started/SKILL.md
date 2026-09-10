@@ -44,6 +44,11 @@ connected / what can I do here?"
    **`uploads`** skill, which decides the table's shape and reconciles the parse
    against the source's own totals before that call. An org's first upload is
    usually the second kind, and it is the one that goes wrong silently.
+   And when results should land in a spreadsheet the team keeps: the
+   **`excel`** skill for a workbook on disk, the **`google-sheets`** skill for
+   a Google Sheet (it needs `gws-connect` once per machine). Both keep a
+   visible `Dough` manifest so the sheets can be refreshed later without
+   re-deriving anything.
 
 For exact tool inputs, call `tools.describe`. For behaviors and gotchas, read
 `../references/dough-datalake-guide.md`.
