@@ -1,7 +1,7 @@
 # Design: `google-sheets` skill — Dough-managed Google Sheets via the `gws` CLI
 
 **Date:** 2026-09-10
-**Status:** Approved design, pre-implementation
+**Status:** Approved design; updated during implementation with measured facts
 **Source material:** the `excel` skill and its `dough_excel.py` script (manifest
 v1), the `gws-connect` skill and `triage.py`, and the `gws` 0.22.5 command
 surface as measured on this machine.
@@ -43,18 +43,35 @@ queries, including formulas on other tabs surviving a refresh.
   three real saved queries and SUMIFS over a managed tab. Offline fakes were
   rejected as the primary test: the user wants the real seam exercised.
 
-## Two facts that shape the script
+## Three facts that shape the script
 
 1. **`gws --json` takes the body inline only.** Neither `--json @file` nor
    stdin works (verified with `--dry-run`). The whole body is one argv string.
-   Windows caps a command line at 32,767 characters; macOS at ~1 MB. So a data
-   tab is written in row chunks, each serialised under ~24,000 characters,
-   sized the same on every platform.
-2. **Deleting a tab in Google Sheets turns every formula referencing it into
-   `#REF!`, permanently.** The Excel script deletes and recreates the data
-   sheet on refresh and gets away with it because Excel re-resolves sheet
-   names on open. The Sheets script must clear the tab in place and keep its
-   sheet ID. This is the invariant the e2e exists to prove.
+   Windows caps a command line at 32,767 characters.
+2. **On this machine an endpoint-security agent (SentinelOne) kills `gws`
+   once a single argument passes ~910 characters** — SIGKILL, exit 137, no
+   crash report, regardless of what the command does, inside or outside the
+   Claude Code sandbox. Measured by bisection; `gws --help <1.4K junk>` dies
+   the same way. A saved query's SQL alone is longer than that, so no amount
+   of row-chunking makes inline bodies viable on managed Macs. Reading
+   credentials out of `gws auth export` to call the REST API directly was
+   rejected: the session would hold a token, which is what gws-connect's
+   design exists to avoid (and the baseline model did exactly this).
+3. **Deleting a tab in Google Sheets turns every formula referencing it into
+   an error, permanently** — verified: adding a tab of the same name back does
+   not repair it. The Excel script deletes and recreates the data sheet on
+   refresh and gets away with it because Excel re-resolves sheet names on
+   open. The Sheets script must clear the tab in place and keep its sheet ID.
+
+So cell contents never travel on a command line. The script builds a typed
+`.xlsx` with the standard library, uploads it once through `gws drive files
+create --upload` (Drive converts it to a Google Sheet; verified that text stays
+text, `0100` stays `0100`, numbers stay numbers, a 1,200-character cell arrives
+whole), copies each tab into the target with `sheets.copyTo`, pastes values
+into the managed tab in place with `copyPaste`, and deletes the staging file.
+Formatting and structure go through `batchUpdate` bodies split to stay under
+`ARG_BUDGET` (800). This is fewer calls than chunked `values.update` on any
+machine and removes the Windows limit as a concern.
 
 ## Contract (unchanged from Excel, restated for Sheets)
 
@@ -121,24 +138,30 @@ Payload: `{"entries": [{"sheet", "queryId", "queryName", "sqlSnapshot",
   sheets.properties,sheets.merges` for the tab list, sheet IDs, and merge
   check; `values get` on `Dough!A1:G` for the manifest (trailing empty cells
   are padded back to seven columns).
-- **Writes:** `values update` with `valueInputOption=RAW`, in row chunks under
-  the argv budget, each targeting its own A1 range. Numbers are coerced with
-  the Excel script's strict decimal rule (`NUMERIC_PATTERN`) and sent as JSON
-  numbers; everything else stays a string. RAW keeps `2026-01` a string.
-- **Formatting:** one `spreadsheets batchUpdate` per tab: `repeatCell` for
-  fills, fonts, wrap, and alignment; `updateSheetProperties` for tab color,
-  frozen rows, and grid size; `updateDimensionProperties` for column widths;
-  `setBasicFilter` on the manifest.
-- **Refresh of an existing tab:** `updateCells` with `fields="*"` over the
-  whole tab clears values and formats; `updateSheetProperties` resizes the
-  grid; then the tab is rewritten. The sheet ID never changes. A tab named in
-  the manifest but missing from the spreadsheet is recreated with a note on
-  stderr, as Excel does.
+- **Writes:** never inline. `Staging` builds one `.xlsx` holding every data
+  tab (banner, headers, rows) plus a `manifest` tab with one row per entry,
+  uploads it from a temp directory (gws refuses `--upload` paths outside its
+  working directory), reads back the staged sheet IDs, and `copyTo`s each
+  into the target. A new managed tab is the copy itself, renamed and resized;
+  an existing one is cleared (`updateCells` with `fields="*"`), resized, and
+  filled with `copyPaste` (`PASTE_VALUES`, destination bounded exactly — an
+  open-ended destination repeats the source to fill the grid), then the copy
+  is deleted. Manifest rows are `copyPaste`d one at a time from the staged
+  `manifest` tab into their upserted row. Numbers are coerced with the Excel
+  script's strict decimal rule before staging.
+- **Formatting:** `batchUpdate` requests grouped into calls whose body stays
+  under `ARG_BUDGET`, in order. Colours are sent at full float precision;
+  Google floors channels to 8-bit, so a rounded 0.3882 for 0x63 comes back as
+  0x62.
+- **Refresh of an existing tab:** clear in place as above. The sheet ID never
+  changes. A tab named in the manifest but missing from the spreadsheet is
+  recreated with a note on stderr, as Excel does.
 - **Rate limits:** the Sheets API allows 60 write requests per minute per
   user. On HTTP 429 the script sleeps with exponential backoff (1, 2, 4, 8,
   16 s) and retries the same chunk; after five failures it exits 4.
-- **Partial failure:** if a chunk fails, exit 4 and state which range was
-  written and which was not, so a half-refreshed tab is never silent.
+- **Partial failure:** the staging file is deleted in a `finally`; if that
+  fails its ID is printed. A run that dies between tabs leaves the manifest
+  consistent with the tabs already landed, and the next run repairs the rest.
 
 ### Windows
 
@@ -146,8 +169,8 @@ Payload: `{"entries": [{"sheet", "queryId", "queryName", "sqlSnapshot",
 - stdout and stderr reconfigured to UTF-8 (the banner has a non-ASCII
   character; a cp1252 console would crash on printing it).
 - `pathlib` throughout; `csvPath` used as given.
-- Chunk budget fixed for the Windows limit on every platform, so behaviour is
-  identical everywhere.
+- No cell content on the command line anywhere, so the Windows limit and the
+  endpoint-security kill are both moot; `ARG_BUDGET` bounds the rest.
 
 ### Exit codes
 
@@ -204,8 +227,8 @@ teardown unless `DOUGH_KEEP_SHEETS=1`. Cases:
 - refresh naming an unknown tab exits 3 with "reconcile".
 - newer manifest marker exits 3 with "update the Dough plugin"; older exits
   3 with "predates".
-- a chunked write: a CSV big enough to need several `values update` calls
-  lands every row.
+- a big tab (1,500 rows): every row lands, typed.
+- `gws` missing exits 4 and names the gws-connect skill.
 
 ### `tests/test_google_sheets_e2e.py` — model-driven, opt-in
 
@@ -228,6 +251,8 @@ Assertions, as invariants rather than transcripts:
 - no merged ranges anywhere;
 - the summary tab's SUMIFS values equal sums computed by the test from the
   managed tab's cells, for at least one mapping and month;
+- a tab the test adds between the turns, with a formula over a managed tab,
+  survives the refresh and still computes (rules out refresh-by-re-upload);
 - after turn 2, the same cells still hold numbers, not `#REF!`, and every
   manifest `last_refreshed` moved forward;
 - `refresh_notes` on the parameterised query names its parameter values.
