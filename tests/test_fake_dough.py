@@ -107,7 +107,7 @@ def test_upload_declares_then_puts_every_object(tmp_path):
     assert {u["key"] for u in printed["uploaded"]} == {"transcript", "f0"}
     assert printed["failed"] == []
 
-    declared = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+    declared = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
     objects = declared[0]["objects"]
     assert [o["key"] for o in objects] == ["transcript", "f0"]
     assert [o["role"] for o in objects] == ["transcript", "file"]
