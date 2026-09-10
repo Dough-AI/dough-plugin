@@ -29,7 +29,30 @@ FILE_TOOLS = {"Read", "Write", "Edit", "NotebookEdit"}
 
 # Absolute paths only. A relative path in prose is ambiguous about which cwd it
 # was relative to, and guessing wrong attaches the wrong file to an audit record.
-PATH_RE = re.compile(r"(?:^|[\s\"'`(])(/[^\s\"'`)]+\.[A-Za-z0-9]{1,8})")
+#
+# "Absolute" is three shapes, not one: POSIX `/a/b.csv`, Windows `C:\a\b.csv`
+# (either separator), and UNC `\\server\share\b.csv`. All three are matched on
+# every platform on purpose -- a pattern that only knows the host it runs on is
+# a pattern nobody's CI ever tests the other half of, which is exactly how the
+# Windows half stayed broken. Nothing is attached on the strength of the match
+# alone: scan_transcript still requires the file to exist.
+PATH_RE = re.compile(
+    r"""(?:^|[\s"'`(])            # a delimiter, never captured
+        (                         # the path itself, one of three shapes:
+          (?: /                   # POSIX absolute
+            | [A-Za-z]:[\\/]      # a Windows drive, either separator
+            | \\\\[^\\/\s"'`)]+[\\/]  # a UNC server and share
+          )
+          [^\s"'`)]+\.[A-Za-z0-9]{1,8}   # the rest, ending in an extension
+        )""",
+    re.VERBOSE,
+)
+
+# A path that is absolute on Windows. Anchored form for testing one token,
+# delimiter-led form for asking whether a whole command contains one -- without
+# it, the `p:/` inside `http://` reads as a drive letter.
+WINDOWS_ABS_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])")
+WINDOWS_ABS_IN_TEXT_RE = re.compile(r"""(?:^|[\s"'`(=])(?:[A-Za-z]:[\\/]|\\\\[^\\/\s])""")
 
 # Never evidence, and noisy enough to bury the real files if left in.
 EXCLUDED_PARTS = {".git", "node_modules", "__pycache__", ".next", ".venv"}
@@ -74,7 +97,41 @@ def cmd_locate(args):
 
 
 def _excluded(path):
-    return any(part in EXCLUDED_PARTS for part in Path(path).parts)
+    r"""Split on both separators rather than via Path: on POSIX a backslash is an
+    ordinary character, so `C:\repo\.git\HEAD` would be a single part and sail
+    straight through the exclusion."""
+    return any(part in EXCLUDED_PARTS for part in re.split(r"[\\/]", path))
+
+
+def _is_absolute(path):
+    """Absolute on EITHER platform. `os.path.isabs` answers only for the host it
+    runs on, so on POSIX a drive-letter path reads as relative and gets joined
+    to a cwd it never belonged to."""
+    return os.path.isabs(path) or bool(WINDOWS_ABS_TOKEN_RE.match(path))
+
+
+def _tokenize(command):
+    r"""Split a shell command into tokens, without eating Windows separators.
+
+    shlex's posix mode reads `\` as an escape, which turns `C:\Users\a.pdf` into
+    `C:Usersa.pdf` -- a path that then matches nothing on disk, silently. Its
+    non-posix mode keeps the backslashes but also keeps the quotes, so those are
+    stripped here. Posix stays the default: it is right for every command that
+    does not carry a Windows path, including the escaped spaces in POSIX ones.
+    """
+    posix = not WINDOWS_ABS_IN_TEXT_RE.search(command)
+    try:
+        tokens = shlex.split(command, posix=posix)
+    except ValueError:
+        # Unbalanced quotes, heredocs -- fall back to whitespace.
+        return command.split()
+    if posix:
+        return tokens
+    return [
+        token[1:-1] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'"
+        else token
+        for token in tokens
+    ]
 
 
 def _iter_records(path):
@@ -114,19 +171,13 @@ def _bash_paths(command, cwd):
     rather than under-collects, and the existence check downstream discards the
     noise.
     """
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        # Unbalanced quotes, heredocs — fall back to whitespace.
-        tokens = command.split()
-
     found = []
-    for token in tokens:
+    for token in _tokenize(command):
         if token.startswith("-") or "://" in token:
             continue  # a flag, or a URL that merely looks path-shaped
-        if "/" not in token and not re.search(r"\.[A-Za-z0-9]{1,8}$", token):
+        if not re.search(r"[\\/]", token) and not re.search(r"\.[A-Za-z0-9]{1,8}$", token):
             continue
-        path = token if os.path.isabs(token) else os.path.join(cwd or "", token)
+        path = token if _is_absolute(token) else os.path.join(cwd or "", token)
         found.append(os.path.normpath(path))
     return found
 
@@ -167,13 +218,19 @@ def scan_transcript(path):
     seen = {}
     for turn, record in _iter_records(path):
         for candidate, source in _paths_in_record(record):
-            if candidate in seen or _excluded(candidate):
+            # Keyed by normcase, not by the string: Windows paths are
+            # case-insensitive, so `C:\x\Invoice.pdf` typed in prose and
+            # `C:\x\invoice.pdf` from a tool call are one file, and attaching
+            # it twice puts the same bytes on an audit record twice. On POSIX
+            # normcase is the identity, so nothing changes there.
+            key = os.path.normcase(candidate)
+            if key in seen or _excluded(candidate):
                 continue
             file_path = Path(candidate)
             if not file_path.is_file():
                 continue
             stat = file_path.stat()
-            seen[candidate] = {
+            seen[key] = {
                 "path": candidate,
                 "bytes": stat.st_size,
                 "mime": mimetypes.guess_type(candidate)[0] or "application/octet-stream",

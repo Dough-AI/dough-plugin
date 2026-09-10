@@ -31,10 +31,16 @@ Its last line is one of five verdicts. Do exactly what the verdict says:
 exactly one client config per machine. You can reuse it or replace it — never
 both, and never silently.
 
+- If it is **Dough's own OAuth app** — the usual case, put there by an earlier
+  run of this skill — triage says `CONNECTED`. Reuse it, write nothing. Triage
+  recognises it offline, from the client id alone, so this works on a machine
+  with no Google Cloud SDK.
 - If it belongs to **the user's own organisation** (their Cloud org owns the
-  OAuth app), triage says `CONNECTED` — reuse it, write nothing.
-- If it belongs to **a third party**, triage says `FOREIGN_CLIENT`. Overwriting
-  would break whatever installed it. **Stop and ask the user which they want.**
+  OAuth app), triage also says `CONNECTED` — reuse it, write nothing. Proving
+  that one needs `gcloud`; without it, an org's own app reads as unknown.
+- If it belongs to **a third party**, or to nobody we can account for, triage
+  says `FOREIGN_CLIENT`. Overwriting would break whatever installed it.
+  **Stop and ask the user which they want.**
 
 ## Stage 1 — the binary
 

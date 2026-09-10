@@ -113,9 +113,13 @@ def find_gws() -> str:
     if found:
         return found
     home = Path.home()
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
     for candidate in (
+        # install.sh uses /usr/local/bin, or ~/.local/bin when that is not
+        # writable; install.ps1 uses %LOCALAPPDATA%\dough\bin.
+        Path("/usr/local/bin/gws"),
         home / ".local" / "bin" / "gws",
-        Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local")) / "Programs" / "gws" / "gws.exe",
+        local_app_data / "dough" / "bin" / "gws.exe",
     ):
         if candidate.is_file():
             return str(candidate)

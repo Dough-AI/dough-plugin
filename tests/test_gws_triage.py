@@ -95,10 +95,11 @@ def test_foreign_client_when_the_app_belongs_to_a_third_party(
 def test_foreign_client_when_ownership_cannot_be_resolved(
     triage, monkeypatch, capsys
 ):
-    """Unresolvable ownership is treated as foreign, deliberately.
+    """An UNKNOWN client whose ownership cannot be resolved is foreign.
 
     Refusing to touch a config we cannot account for is the safe default; the
-    cost is asking the user.
+    cost is asking the user. Note the client id here is not Dough's — that case
+    is answered offline and never reaches this branch.
     """
     monkeypatch.setattr(triage, "find_gws", lambda: "/fake/gws")
     monkeypatch.setattr(
@@ -113,6 +114,84 @@ def test_foreign_client_when_ownership_cannot_be_resolved(
     monkeypatch.setattr(triage, "resolve_owning_org", lambda _: None)
     monkeypatch.setattr(triage, "user_cloud_org", lambda: None)
     assert run_main(triage, capsys) == "FOREIGN_CLIENT"
+
+
+def _client(triage, monkeypatch, client_id, scopes=None):
+    """A machine with client config for `client_id` and no gcloud at all."""
+    scopes = scopes if scopes is not None else [
+        triage.SCOPE_PREFIX + s for s in ("spreadsheets", "documents", "drive.file")
+    ]
+    monkeypatch.setattr(triage, "find_gws", lambda: "/fake/gws")
+    monkeypatch.setattr(
+        triage,
+        "gws_json",
+        lambda _g, args: (
+            {
+                "client_config_exists": True,
+                "has_refresh_token": True,
+                "scope_count": len(scopes),
+                "scopes": scopes,
+            }
+            if args[-1] == "status"
+            else {"client_id": client_id}
+        ),
+    )
+    # No Cloud SDK: every org lookup returns None. This is the ordinary state of
+    # a Windows machine, and it is what made CONNECTED unreachable.
+    monkeypatch.setattr(triage.shutil, "which", lambda _: None)
+    monkeypatch.delenv(triage.DOUGH_CLIENT_ID_ENV, raising=False)
+
+
+def test_connected_when_the_dough_app_owns_the_config_and_gcloud_is_absent(
+    triage, monkeypatch, capsys
+):
+    """The case nothing covered, and the one customers actually hit.
+
+    A correctly-connected Dough install on a machine with no Google Cloud SDK
+    used to report FOREIGN_CLIENT, which tells the skill to stop and tells the
+    user a third party owns their config.
+    """
+    _client(triage, monkeypatch, triage.DOUGH_CLIENT_ID)
+    assert run_main(triage, capsys) == "CONNECTED"
+
+
+def test_connected_when_dough_rotates_the_client_inside_its_own_project(
+    triage, monkeypatch, capsys
+):
+    """Ownership is the project number, not the exact id — otherwise rotating
+    our OAuth client would strand every install already out there."""
+    rotated = (
+        triage.project_number_of(triage.DOUGH_CLIENT_ID)
+        + "-rotated.apps.googleusercontent.com"
+    )
+    _client(triage, monkeypatch, rotated)
+    assert run_main(triage, capsys) == "CONNECTED"
+
+
+def test_foreign_client_for_a_third_party_when_gcloud_is_absent(
+    triage, monkeypatch, capsys
+):
+    """The guard still guards: no gcloud does not mean trust anything."""
+    _client(triage, monkeypatch, "999999999999-other.apps.googleusercontent.com")
+    assert run_main(triage, capsys) == "FOREIGN_CLIENT"
+
+
+def test_login_only_when_the_dough_app_is_present_but_scopes_are_short(
+    triage, monkeypatch, capsys
+):
+    """Recognising our own app must not skip the scope check."""
+    _client(triage, monkeypatch, triage.DOUGH_CLIENT_ID,
+            scopes=[triage.SCOPE_PREFIX + "spreadsheets"])
+    assert run_main(triage, capsys) == "LOGIN_ONLY"
+
+
+def test_the_env_override_names_a_client_for_a_self_hosted_deployment(
+    triage, monkeypatch, capsys
+):
+    """A deployment running its own OAuth app can name it, without gcloud."""
+    _client(triage, monkeypatch, "555-self.apps.googleusercontent.com")
+    monkeypatch.setenv(triage.DOUGH_CLIENT_ID_ENV, "555-self.apps.googleusercontent.com")
+    assert run_main(triage, capsys) == "CONNECTED"
 
 
 def _own_app(triage, monkeypatch, scopes, has_token=True):
@@ -182,6 +261,15 @@ def test_project_number_is_the_client_id_prefix(triage):
         triage.project_number_of("487272055567-hv36.apps.googleusercontent.com")
         == "487272055567"
     )
+
+
+def test_the_dough_client_id_is_a_full_installed_app_id(triage):
+    """Abbreviated or truncated, it silently matches nothing. `auth status`
+    abbreviates client_id; only the full value from `auth export` compares."""
+    assert triage.DOUGH_CLIENT_ID.endswith(".apps.googleusercontent.com")
+    assert triage.project_number_of(triage.DOUGH_CLIENT_ID).isdigit()
+    assert triage.is_dough_client(triage.DOUGH_CLIENT_ID)
+    assert not triage.is_dough_client("")
 
 
 def test_gws_json_strips_the_keyring_banner(triage, monkeypatch):

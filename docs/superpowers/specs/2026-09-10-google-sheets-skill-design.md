@@ -129,7 +129,8 @@ Payload: `{"entries": [{"sheet", "queryId", "queryName", "sqlSnapshot",
 ### gws mechanics
 
 - **Locating `gws`:** `GWS_BIN` env override, then PATH via `shutil.which`,
-  then `~/.local/bin/gws` and `%LOCALAPPDATA%\Programs\gws\gws.exe`. Absent:
+  then `/usr/local/bin/gws`, `~/.local/bin/gws` and
+  `%LOCALAPPDATA%\dough\bin\gws.exe` — where the installer actually puts it. Absent:
   exit 4 with "run the gws-connect skill".
 - **Invocation:** always an argument list, never a shell string. Judge by exit
   code. Parse stdout from the first `{`, because every call prints

@@ -29,8 +29,18 @@ NEEDED_SCOPES = ("spreadsheets", "documents", "drive.file")
 SCOPE_PREFIX = "https://www.googleapis.com/auth/"
 DRIVE_FULL = SCOPE_PREFIX + "drive"
 
-# Set when the Dough-owned client is known, so it is recognised as ours rather
-# than as a third party's.
+# The Dough-owned OAuth client. A client_id's numeric prefix IS the GCP project
+# number that owns it (see project_number_of), so this one constant identifies
+# our app OFFLINE -- no gcloud, no network, no environment variable. It is the
+# same value Dough serves from GET /api/gws/client-config.
+#
+# Not a secret: an installed-app client_id appears in every OAuth consent URL
+# the user is shown, and Google treats installed-app credentials as
+# non-confidential. Only client_secret needs care, and that is never in here.
+DOUGH_CLIENT_ID = "487272055567-hv36bmpk0dllalah9sm267m2t2d7r3tp.apps.googleusercontent.com"
+
+# Escape hatch for a deployment running its own OAuth app. Optional -- the
+# constant above is what makes the common case work.
 DOUGH_CLIENT_ID_ENV = "DOUGH_GWS_CLIENT_ID"
 
 
@@ -61,9 +71,14 @@ def find_gws() -> str | None:
     if found:
         return found
     home = Path.home()
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
     candidates = [
+        # Where the Dough installer actually puts it: install.sh uses
+        # /usr/local/bin, or ~/.local/bin when that is not writable;
+        # install.ps1 uses %LOCALAPPDATA%\dough\bin.
+        Path("/usr/local/bin/gws"),
         home / ".local" / "bin" / "gws",
-        home / "AppData" / "Local" / "Programs" / "gws" / "gws.exe",
+        local_app_data / "dough" / "bin" / "gws.exe",
     ]
     for candidate in candidates:
         if candidate.is_file():
@@ -91,6 +106,26 @@ def gws_json(gws: str, args: list[str]) -> dict | None:
 def project_number_of(client_id: str) -> str:
     """A client_id's numeric prefix IS its owning GCP project number."""
     return client_id.split("-", 1)[0]
+
+
+def is_dough_client(client_id: str) -> bool:
+    """Is this OAuth client Dough's own?
+
+    Matched on the owning PROJECT number rather than the exact id, so rotating
+    the client inside Dough's Cloud project does not turn every install already
+    out there into a FOREIGN_CLIENT overnight.
+
+    This is the check that has to work with no gcloud and no network, because
+    that describes most Windows machines. Ownership by org (below) needs the
+    Cloud SDK, and when it is missing every org lookup returns None -- which
+    without this check made CONNECTED unreachable.
+    """
+    if not client_id:
+        return False
+    override = os.environ.get(DOUGH_CLIENT_ID_ENV, "").strip()
+    if override and client_id == override:
+        return True
+    return project_number_of(client_id) == project_number_of(DOUGH_CLIENT_ID)
 
 
 def resolve_owning_org(project_number: str) -> str | None:
@@ -171,29 +206,29 @@ def main() -> int:
         return verdict("BRANCH_A" if branch_a_possible() else "BRANCH_B")
 
     # WHOSE app is this? gws hardcodes one config directory, so we reuse it or
-    # replace it -- never both, and never silently. The question is not "is this
-    # client id ours" but "is this app in the user's OWN Cloud org": if it is,
-    # reuse is legitimate (their app, their employee) and writes nothing.
+    # replace it -- never both, and never silently. Two answers permit reuse:
+    # it is Dough's own app, or it is an app in the user's OWN Cloud org (their
+    # app, their employee). Either way reuse writes nothing.
     #
     # `auth status` ABBREVIATES client_id; only `auth export` carries the full
     # value, and the naive check fails silently on the abbreviated one.
     exported = gws_json(gws, ["auth", "export"]) or {}
     client_id = str(exported.get("client_id") or "")
-    app_org = resolve_owning_org(project_number_of(client_id))
-    own_org = user_cloud_org()
-    say("app owning org", app_org or "<unresolved>")
-    say("user cloud org", own_org or "<none>")
 
-    is_dough_app = bool(
-        client_id and client_id == os.environ.get(DOUGH_CLIENT_ID_ENV, "").strip()
-    )
-    if is_dough_app:
+    if is_dough_client(client_id):
+        # Answered offline, so the gcloud walk below is skipped entirely.
+        say("app owner", "Dough")
         say("verdict", "the Dough app - reuse")
-    elif app_org and own_org and app_org == own_org:
-        say("verdict", "app belongs to the user's own org - reuse")
     else:
-        say("verdict", "THIRD PARTY or unresolvable - do not overwrite")
-        return verdict("FOREIGN_CLIENT")
+        app_org = resolve_owning_org(project_number_of(client_id))
+        own_org = user_cloud_org()
+        say("app owning org", app_org or "<unresolved>")
+        say("user cloud org", own_org or "<none>")
+        if app_org and own_org and app_org == own_org:
+            say("verdict", "app belongs to the user's own org - reuse")
+        else:
+            say("verdict", "THIRD PARTY or unresolvable - do not overwrite")
+            return verdict("FOREIGN_CLIENT")
 
     if not has_token:
         return verdict("LOGIN_ONLY")
