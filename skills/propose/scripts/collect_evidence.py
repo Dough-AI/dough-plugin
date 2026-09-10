@@ -118,8 +118,32 @@ def _is_absolute(path):
     absolute -- drive-relative is ambiguous in exactly the way this rule exists
     to reject, and ntpath's own answer for it changed in 3.13, so deferring to
     it would make the result depend on the interpreter.
+
+    `/work/a.csv` on a Windows host IS accepted, and that is the same
+    drive-relative shape: it resolves against whatever drive the collector is
+    running on. Accepted anyway, because that is what Windows itself does with
+    it and what `Path.is_file()` will check regardless -- and because dropping
+    it would put us back where this fix started, with git-bash and WSL evidence
+    silently missing. `_dedupe_key` is what keeps the two spellings one file.
     """
     return posixpath.isabs(path) or bool(WINDOWS_ABS_TOKEN_RE.match(path))
+
+
+def _dedupe_key(path):
+    r"""One key per FILE, not per spelling.
+
+    Two things make one file arrive under two names. Windows paths are
+    case-insensitive, so `C:\x\Invoice.pdf` typed in prose and `C:\x\invoice.pdf`
+    from a tool call are the same bytes. And a rooted path with no drive --
+    `/work/a.csv` in a git-bash command, which normpath rewrites to `\work\a.csv`
+    on a Windows host -- names the same file as `C:\work\a.csv` whenever the
+    collector is running on C:.
+
+    So the key is what `is_file()` below will actually resolve and check, which
+    is exactly `abspath`. Attaching the same bytes to an audit record twice is
+    not wrong, but it is noise on the one document that should not have any.
+    """
+    return os.path.normcase(os.path.abspath(path))
 
 
 def _tokenize(command):
@@ -230,12 +254,7 @@ def scan_transcript(path):
     seen = {}
     for turn, record in _iter_records(path):
         for candidate, source in _paths_in_record(record):
-            # Keyed by normcase, not by the string: Windows paths are
-            # case-insensitive, so `C:\x\Invoice.pdf` typed in prose and
-            # `C:\x\invoice.pdf` from a tool call are one file, and attaching
-            # it twice puts the same bytes on an audit record twice. On POSIX
-            # normcase is the identity, so nothing changes there.
-            key = os.path.normcase(candidate)
+            key = _dedupe_key(candidate)
             if key in seen or _excluded(candidate):
                 continue
             file_path = Path(candidate)

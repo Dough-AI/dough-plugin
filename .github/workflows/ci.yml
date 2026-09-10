@@ -58,8 +58,15 @@ jobs:
     # customers that way -- a POSIX-only path pattern that made `dough propose`
     # attach no evidence, a triage that could never report CONNECTED without
     # gcloud, a test rig that wiped SystemRoot, and an `os.path.isabs` that is
-    # wrong in the opposite direction on each platform. Each one cost a VM and a
-    # hand-run session to find, and every one of them would have failed here.
+    # wrong in the opposite direction on each platform. Each cost a VM and a
+    # hand-run session to find.
+    #
+    # Three of the four would have failed here. The triage one would NOT: the
+    # only tests that exercise it end to end need a real gws connection, and
+    # those skip on any runner. Finding that class of bug still takes a machine
+    # with Google Workspace actually connected. What this matrix does for it is
+    # narrower and worth stating plainly -- the hermetic triage tests pin the
+    # offline path on both platforms, so it cannot silently regress.
     #
     # The Python dimension is not padding: `ntpath.isabs("/work/a.csv")` returns
     # True on 3.12 and False from 3.13, so the fourth bug above is INVISIBLE to a

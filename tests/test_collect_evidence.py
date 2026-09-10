@@ -103,6 +103,31 @@ def test_scan_finds_files_from_read_and_edit_calls(tmp_path):
     assert candidates[0]["bytes"] == real.stat().st_size
 
 
+def test_two_spellings_of_one_file_are_one_candidate(tmp_path):
+    r"""The same bytes must not reach an audit record twice under two names.
+
+    On Windows the two spellings are `C:\x\Invoice.pdf` and `C:\x\invoice.pdf`,
+    or `\work\a.csv` and `C:\work\a.csv`; neither can be written as a test that
+    runs on POSIX. The property underneath is the same one: the key is what
+    `is_file()` will actually resolve, so any spelling that resolves alike
+    collapses.
+    """
+    home = tmp_path / "home"
+    real = tmp_path / "a.csv"
+    real.write_text("x\n", encoding="utf-8")
+    detour = str(tmp_path / "sub" / ".." / "a.csv")
+    (tmp_path / "sub").mkdir()
+    make_project(
+        home,
+        "/work/proj",
+        "sess-1",
+        [assistant_tool_use("Read", str(real)), assistant_tool_use("Read", detour)],
+    )
+    r = run("scan", "--session-id", "sess-1", "--cwd", "/work/proj", "--home", str(home))
+    candidates = json.loads(r.stdout)["candidates"]
+    assert [c["path"] for c in candidates] == [str(real)]
+
+
 def test_scan_deduplicates_and_keeps_the_first_sighting(tmp_path):
     home = tmp_path / "home"
     real = tmp_path / "a.csv"
