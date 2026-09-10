@@ -13,6 +13,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -104,10 +105,21 @@ def _excluded(path):
 
 
 def _is_absolute(path):
-    """Absolute on EITHER platform. `os.path.isabs` answers only for the host it
-    runs on, so on POSIX a drive-letter path reads as relative and gets joined
-    to a cwd it never belonged to."""
-    return os.path.isabs(path) or bool(WINDOWS_ABS_TOKEN_RE.match(path))
+    r"""Absolute on EITHER platform, whichever platform this happens to be.
+
+    `os.path.isabs` cannot answer this: it answers for its host, and it is wrong
+    in one direction on each. On POSIX it calls `C:\Users\a.pdf` relative. On
+    Windows since 3.13 it calls `/work/a.csv` relative too -- that path is
+    drive-RELATIVE there, since it never says which drive. Either way the token
+    is joined to a cwd it never belonged to, and the evidence is quietly missed.
+
+    So neither branch is the host's opinion: `posixpath.isabs` for POSIX roots,
+    the drive/UNC pattern for Windows ones. `\work\a.csv` is deliberately NOT
+    absolute -- drive-relative is ambiguous in exactly the way this rule exists
+    to reject, and ntpath's own answer for it changed in 3.13, so deferring to
+    it would make the result depend on the interpreter.
+    """
+    return posixpath.isabs(path) or bool(WINDOWS_ABS_TOKEN_RE.match(path))
 
 
 def _tokenize(command):

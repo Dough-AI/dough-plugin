@@ -7,6 +7,8 @@ import sys
 import threading
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).parent.parent / "skills" / "propose" / "scripts" / "collect_evidence.py"
 
 
@@ -458,14 +460,46 @@ def test_bash_keeps_a_quoted_windows_path_whole():
     assert found == [r"C:\Program Files\Dough\notes.csv"]
 
 
+# `_is_absolute` must give the same answer on every host and every interpreter.
+# `os.path.isabs` is wrong in one direction on each platform: on POSIX it calls a
+# drive-letter path relative, and on Windows since 3.13 it calls `/work/a.csv`
+# relative too — that path is drive-RELATIVE there, since it never says which
+# drive. Either way the token is joined to a cwd it never belonged to, and the
+# evidence is quietly missed.
+ABSOLUTE = [
+    "/work/a.csv",                     # POSIX
+    r"C:\Users\Admin\invoice.pdf",      # Windows drive
+    "C:/Users/Admin/invoice.pdf",      # Windows drive, forward slashes
+    r"\\server\share\a.xlsx",          # UNC
+]
+NOT_ABSOLUTE = [
+    "notes/a.csv",
+    r"notes\a.csv",
+    "a.csv",
+    # Rooted but driveless, and so drive-relative: ambiguous in exactly the way
+    # the absolute-only rule exists to reject. Deliberate — ntpath's own answer
+    # for this one changed in 3.13, so deferring to it would make the result
+    # depend on the interpreter.
+    r"\work\a.csv",
+]
+
+
+@pytest.mark.parametrize("path", ABSOLUTE)
+def test_absolute_on_either_platform_is_absolute_here(path):
+    assert load_module()._is_absolute(path)
+
+
+@pytest.mark.parametrize("path", NOT_ABSOLUTE)
+def test_relative_stays_relative(path):
+    assert not load_module()._is_absolute(path)
+
+
 def test_bash_does_not_join_a_windows_absolute_path_to_the_cwd():
-    """os.path.isabs answers for the platform it runs on; a drive-letter path is
-    absolute whether or not this machine is Windows."""
+    """The whole point of the rule: an absolute token keeps its own root."""
     m = load_module()
-    assert m._is_absolute(r"C:\Users\Admin\invoice.pdf")
-    assert m._is_absolute(r"\\server\share\a.xlsx")
-    assert m._is_absolute("/work/a.csv")
-    assert not m._is_absolute("notes/a.csv")
+    assert m._bash_paths(r"type C:\Users\Admin\invoice.pdf", "/work") == [
+        r"C:\Users\Admin\invoice.pdf"
+    ]
 
 
 def test_bash_still_resolves_a_relative_windows_token_against_the_cwd():

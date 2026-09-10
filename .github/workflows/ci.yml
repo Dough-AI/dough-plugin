@@ -32,8 +32,8 @@ jobs:
           print("OK")
           PY
 
-  python:
-    name: Lint and tests
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,9 +43,42 @@ jobs:
         run: |
           pip install ruff
           ruff check --select E9,F63,F7,F82 .
+
+  tests:
+    # This plugin ships to CUSTOMER machines, a large share of them Windows, and
+    # until now every job here ran on Ubuntu. Four Windows-only bugs reached
+    # customers that way -- a POSIX-only path pattern that made `dough propose`
+    # attach no evidence, a triage that could never report CONNECTED without
+    # gcloud, a test rig that wiped SystemRoot, and an `os.path.isabs` that is
+    # wrong in the opposite direction on each platform. Each one cost a VM and a
+    # hand-run session to find, and every one of them would have failed here.
+    #
+    # The Python dimension is not padding: `ntpath.isabs("/work/a.csv")` returns
+    # True on 3.12 and False from 3.13, so the fourth bug above is INVISIBLE to a
+    # Windows runner pinned to 3.12. These scripts are stdlib-only and run on
+    # whatever Python the user happens to have, so the matrix says so too.
+    #
+    # fail-fast is off deliberately: one run should report every platform's
+    # failures, not just whichever finished first.
+    name: Tests (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
       - name: pytest
         # The repository declares no dependency manifest, so test deps are
         # listed here. openpyxl is required by tests/test_dough_excel.py.
+        #
+        # `-rs` prints the reason for every skip. A suite that reports only
+        # "14 skipped" is how one of the bugs above hid: the live tests were
+        # skipping because triage could not say CONNECTED, and a broken skip
+        # looks exactly like a deliberate one in the summary line.
         run: |
           pip install pytest openpyxl
-          pytest tests -q
+          pytest tests -q -rs
