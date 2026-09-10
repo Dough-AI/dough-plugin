@@ -13,6 +13,7 @@ stdout shape it parses.
 import hashlib
 import http.server
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -25,9 +26,18 @@ FAKE = REPO / "tests" / "fake_dough.py"
 
 
 def run(args, env=None, cwd=None):
+    """`env` is an OVERLAY on this process's environment, never a replacement.
+
+    A bare dict is hermetic in the way that matters and also drops SystemRoot,
+    without which Winsock cannot initialise on Windows: every socket the fake
+    opens then dies with `WinError 10106`, which reads as a bug in the fake.
+    Only the variables named here need to be set; the rest of the environment
+    is the machine's, on either platform.
+    """
     return subprocess.run(
         [sys.executable, str(FAKE), *args],
-        capture_output=True, text=True, timeout=60, env=env, cwd=cwd,
+        capture_output=True, text=True, timeout=60,
+        env={**os.environ, **(env or {})}, cwd=cwd,
     )
 
 
@@ -83,7 +93,6 @@ def test_upload_declares_then_puts_every_object(tmp_path):
     env = {
         "DOUGH_FAKE_LOG": str(log),
         "DOUGH_FAKE_SINK": f"http://127.0.0.1:{sink.server_address[1]}",
-        "PATH": "/usr/bin:/bin",
     }
     result = run(
         ["evidence", "upload", "--session", "sess",
@@ -115,8 +124,7 @@ def test_upload_refuses_a_missing_file_before_declaring_anything(tmp_path):
     log = tmp_path / "calls.jsonl"
     result = run(
         ["evidence", "upload", "--session", "sess", "--file", str(tmp_path / "nope.csv")],
-        env={"DOUGH_FAKE_LOG": str(log), "DOUGH_FAKE_SINK": "http://127.0.0.1:1",
-             "PATH": "/usr/bin:/bin"},
+        env={"DOUGH_FAKE_LOG": str(log), "DOUGH_FAKE_SINK": "http://127.0.0.1:1"},
     )
     assert result.returncode == 2
     assert not log.exists(), "declared something despite refusing the input"
@@ -137,8 +145,7 @@ def test_stdout_is_pure_json_and_the_notice_goes_to_stderr(tmp_path):
     result = run(
         ["evidence", "upload", "--session", "s", "--home", str(home), "--cwd", str(work)],
         env={"DOUGH_FAKE_LOG": str(tmp_path / "l.jsonl"),
-             "DOUGH_FAKE_SINK": f"http://127.0.0.1:{sink.server_address[1]}",
-             "PATH": "/usr/bin:/bin"},
+             "DOUGH_FAKE_SINK": f"http://127.0.0.1:{sink.server_address[1]}"},
         cwd=str(work),
     )
     sink.shutdown()
