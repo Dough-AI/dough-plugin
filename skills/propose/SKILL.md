@@ -153,17 +153,19 @@ quietly propose without evidence.
    retry, proceed with the declared missing object, or cancel. If the user
    proceeds, do not upload a new set that omits it; doing so would hide the gap.
 
-7. **Attach the reference.** Call `proposals.propose` with
-   `transcript: { evidenceId, sessionId, manifest }`. The manifest has one entry
-   per retained file with `key`, `filename`, `sha256`, `bytes`, `mime`, `role`,
-   and its note. Send the rationale separately. Never inline transcript or file
-   contents into MCP.
+7. **Attach the reference.** Put
+   `transcript: { evidenceId, sessionId, manifest }` on the proposal call the
+   invoking workflow requires: `proposals.propose` for `/dough:propose` and a
+   standalone `/dough:proposal_fix`, or `proposals.propose_batch` when fixing a
+   batch. The manifest has one entry per retained file with `key`, `filename`,
+   `sha256`, `bytes`, `mime`, `role`, and its note. Send rationale separately on
+   each proposal or batch item. Never inline transcript or file contents into MCP.
 
 8. **Recover safely.** For `invalid_evidence`, restart from disclosure and
    consent with a new set. For `evidence_integrity`, redeclare and re-upload; do
-   not retry the consumed or mismatched set. If `proposals.propose` is absent,
-   stop and report a stale plugin/server or MCP connection rather than proposing
-   by another route.
+   not retry the consumed or mismatched set. If the proposal tool the invoking
+   workflow requires is absent, stop and report a stale plugin/server or MCP
+   connection rather than proposing by another route.
 
 ## When it comes back refused
 
