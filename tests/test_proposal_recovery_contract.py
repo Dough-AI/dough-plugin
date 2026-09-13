@@ -44,6 +44,14 @@ def test_fix_replaces_exactly_the_eligible_batch_remainder():
     assert "posted child ids being left untouched" in FIX
 
 
+def test_fix_redirects_a_batch_child_before_evidence_upload():
+    assert 'type: "proposal"' in FIX
+    assert "non-null `batch`" in FIX
+    assert "`batch.batchId`" in FIX
+    assert "cannot be revised through the standalone proposal API" in FIX
+    assert "before discussing a correction or uploading evidence" in FIX
+
+
 def test_fix_keeps_batch_destination_and_handles_concurrent_recovery():
     assert (
         "MUST keep the source batch's connected company, target system, and action kind"
