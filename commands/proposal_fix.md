@@ -12,7 +12,11 @@ steps below add only revision-specific behavior.
 
 1. Call `proposals.get` with the argument exactly as supplied. It accepts a UUID,
    `PROP-…` or `BATCH-…` reference, or Dough proposal URL. Never fetch a supplied
-   URL. Branch on the returned `type`; do not infer a batch from its URL shape.
+   URL. If it returns `type: "proposal"` with a non-null `batch`, immediately call
+   `proposals.get` with `batch.batchId` and continue with that batch response. A
+   batch child cannot be revised through the standalone proposal API, so redirect
+   before discussing a correction or uploading evidence. Otherwise branch on the
+   returned `type`; do not infer a batch from its URL shape.
 2. Establish that the selected record is replaceable:
    - For `type: "proposal"`, stop unless it is `rejected` or `failed`, is not
      abandoned, and is the last entry in `revisionHistory`. If it was superseded,
