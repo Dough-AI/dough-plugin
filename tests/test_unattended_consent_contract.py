@@ -59,10 +59,34 @@ def evidence_section():
     return rest[: end.start()] if end else rest
 
 
-def step(number, nxt):
-    section = re.search(rf"{number}\. \*\*.*?(?={nxt}\. \*\*)", evidence_section())
-    assert section, f"the evidence-backed flow no longer has a step {number}"
-    return section.group(0)
+def step(number, nxt=None):
+    """One numbered step. `nxt=None` runs to the end of the section, which is
+    the only way to reach the LAST step — there is no step 9 to bound 8."""
+    section = evidence_section()
+    bound = rf"(?={nxt}\. \*\*)" if nxt else "$"
+    found = re.search(rf"{number}\. \*\*.*?{bound}", section)
+    assert found, f"the evidence-backed flow no longer has a step {number}"
+    return found.group(0)
+
+
+def unattended_branch(text):
+    """Only the text UNDER the unattended heading, up to the interactive one.
+
+    Asserting against a whole step is how these tests passed while saying
+    nothing: the INTERACTIVE branch already contains words like "proceed" and
+    "declared missing", so a scoped claim about the unattended path was being
+    satisfied by the paragraph it is meant to be distinguished from.
+    """
+    # Capture from "Unattended" INCLUDING its bold heading — the heading often
+    # carries the instruction itself ("**Unattended: proceed with the object
+    # declared missing.**"), and skipping to after the closing ** dropped it.
+    match = re.search(r"\*\*Unattended[:,](.*?)(?=Otherwise|$)", text, re.S)
+    if match:
+        return match.group(1)
+    # Also accept the bulleted form: "- **`unattended` is `true`:** …"
+    match = re.search(r"`unattended` is `true`[:*]*(.*?)(?=- \*\*Otherwise|$)", text, re.S)
+    assert match, "no unattended branch found in this step"
+    return match.group(1)
 
 
 # ── the observable channel ───────────────────────────────────────────────────
@@ -162,9 +186,30 @@ def test_the_human_gate_is_still_named():
 
 
 def test_a_missing_cli_does_not_wait_for_someone_to_install_it():
-    """Step 1 tells the user to open a new terminal. Unattended, there is none."""
-    assert re.search(r"unattended", step(1, 2), re.I), (
+    """Step 1 tells the user to open a new terminal. Unattended, there is none.
+
+    And step 1 sits ABOVE the scan, so it must say how to learn the flag there —
+    otherwise it names a branch the agent has no way to evaluate, which is
+    indistinguishable from having no branch at all."""
+    one = step(1, 2)
+    assert re.search(r"unattended", one, re.I), (
         "step 1 still assumes a person who can install the CLI and rerun"
+    )
+    # An INSTRUCTION to run it, not the word "scan" anywhere. Step 1 already
+    # says "stop before scanning or proposing", which satisfied a bare /scan/
+    # match — so deleting the paragraph that tells the agent how to learn the
+    # flag left this test green while the branch became unevaluable.
+    assert re.search(r"[Rr]un the [^.]{0,20}scan", one), (
+        "step 1 branches on `unattended` without telling the agent to RUN the "
+        "scan that produces it — the only source, and it is two steps below"
+    )
+    branch = prose(unattended_branch(one))
+    assert re.search(r"stop", branch, re.I), (
+        "step 1's unattended path does not stop"
+    )
+    assert re.search(r"not propose without evidence|do not propose", branch, re.I), (
+        "step 1's unattended path does not forbid proposing unevidenced — the "
+        "shortcut an agent reaches for when it cannot attach evidence"
     )
 
 
@@ -175,6 +220,23 @@ def test_a_partial_upload_does_not_wait_for_a_choice():
     assert re.search(r"unattended", six, re.I), (
         "step 6 still offers a choice with nobody there to make it"
     )
-    assert re.search(r"declared missing|proceed", six, re.I), (
-        "step 6's unattended path must proceed with the gap declared, not cancel"
+    # Scoped to the unattended paragraph. Against the whole step this passed on
+    # the INTERACTIVE branch's own "proceed with the declared missing object",
+    # so rewriting the unattended path to say "cancel the run" kept it green.
+    branch = prose(unattended_branch(six))
+    assert re.search(r"declared missing", branch, re.I), (
+        "step 6's unattended path must proceed with the gap declared"
+    )
+    assert not re.search(r"\bcancel\b(?!\.)", branch.split("Do not")[0], re.I), (
+        "step 6's unattended path appears to cancel, which discards work nobody "
+        "can redo and leaves the approver nothing"
+    )
+
+
+def test_recovery_does_not_wait_either():
+    """Step 8 restarts from disclosure and consent — the same gate as step 4,
+    reached after a refusal. It had no branch and no test at all."""
+    eight = step(8)
+    assert re.search(r"unattended", eight, re.I), (
+        "step 8 restarts from consent with nobody there to give it"
     )
