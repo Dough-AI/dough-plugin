@@ -2,7 +2,7 @@
   "mcpServers": {
     "dough": {
       "type": "http",
-      "url": "https://app.usedough.ai/api/mcp"
+      "url": "${DOUGH_MCP_URL:-https://app.usedough.ai/api/mcp}"
     }
   }
 }
