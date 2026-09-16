@@ -137,8 +137,23 @@ quietly propose without evidence.
 4. **Curate and disclose.** Keep only files that substantiate the replacement.
    Give each a one-line note. Show every retained file, its size and note, plus
    the session transcript, which is always uploaded. State the limits: 25 MB per
-   object, 100 MB per set, and 64 objects. Obtain clear user consent before any
-   upload.
+   object, 100 MB per set, and 64 objects.
+
+   Then, **consent — which depends on whether anyone is there.**
+
+   - **`DOUGH_UNATTENDED` is set** (a hosted agent on its own machine): say all
+     of the above as a message, then **continue without asking**. Nobody is
+     reading, and a question here strands the run holding a rented machine.
+     The disclosure is not skipped — it is the record, and it lands in the run
+     log where the agent's owner reads it afterwards.
+   - **Otherwise:** obtain clear user consent before any upload, as always.
+
+   Proceeding unattended is not a lowered bar. **The proposal is still approved
+   by a person** before anything is booked, so consent for the upload was given
+   in advance by whoever configured the agent to run this way, and consent for
+   the booking is still given afterwards, per entry. What you must never do is
+   propose *without* evidence because nobody was available to approve attaching
+   it — that would trade a missing signature for a missing audit trail.
 
 5. **Upload once.** Run one bare command:
 
