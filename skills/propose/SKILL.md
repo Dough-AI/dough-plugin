@@ -118,8 +118,15 @@ quietly propose without evidence.
 
 1. **Check the CLI first.** Run `dough evidence --help`. If `dough` is missing or
    does not know `evidence`, stop before scanning or proposing. Evidence requires
-   dough CLI v0.1.46 or later. Give the appropriate installer command, ask the
-   user to open a new terminal, and have them rerun their original command:
+   dough CLI v0.1.46 or later.
+
+   **Unattended, stop and say why.** There is nobody to open a terminal, so
+   report that the CLI is missing and end the run there. Do not propose without
+   evidence — that trades a missing signature for a missing audit trail, which
+   is the worse of the two.
+
+   Otherwise give the appropriate installer command, ask the user to open a new
+   terminal, and have them rerun their original command:
 
    - macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
    - Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
@@ -134,6 +141,13 @@ quietly propose without evidence.
    `python3` on macOS/Linux or `python` on Windows. Run it as one bare command—no
    `cd`, pipe, or compound shell command—and read its complete output.
 
+   Its `unattended` field tells you **whether anybody is there**. It is `true`
+   on a hosted agent's own machine and `false` wherever a person is present.
+   Every step below that would ask a question depends on it, so read it before
+   you reach one. You cannot determine this any other way: the environment
+   variable behind it is invisible to you, which is exactly why the scan
+   reports it.
+
 4. **Curate and disclose.** Keep only files that substantiate the replacement.
    Give each a one-line note. Show every retained file, its size and note, plus
    the session transcript, which is always uploaded. State the limits: 25 MB per
@@ -141,11 +155,11 @@ quietly propose without evidence.
 
    Then, **consent — which depends on whether anyone is there.**
 
-   - **`DOUGH_UNATTENDED` is set** (a hosted agent on its own machine): say all
-     of the above as a message, then **continue without asking**. Nobody is
-     reading, and a question here strands the run holding a rented machine.
-     The disclosure is not skipped — it is the record, and it lands in the run
-     log where the agent's owner reads it afterwards.
+   - **`unattended` was `true` in the scan output** (a hosted agent on its own
+     machine): say all of the above as a message, then **continue without
+     asking**. Nobody is reading, and a question here strands the run holding a
+     rented machine. The disclosure is not skipped — it is the record, and it
+     lands in the run log where the agent's owner reads it afterwards.
    - **Otherwise:** obtain clear user consent before any upload, as always.
 
    Proceeding unattended is not a lowered bar. **The proposal is still approved
@@ -164,9 +178,17 @@ quietly propose without evidence.
    move so missing objects remain visible to the approver.
 
 6. **Handle incomplete uploads explicitly.** Show every `failed` and `rejected`
-   object and relay rejection messages without interpreting their codes. Offer
-   retry, proceed with the declared missing object, or cancel. If the user
-   proceeds, do not upload a new set that omits it; doing so would hide the gap.
+   object and relay rejection messages without interpreting their codes.
+
+   **Unattended:** retry once, then **proceed with the object declared
+   missing** — it was declared before bytes moved, so the gap stays visible to
+   the approver, which is the property that matters. Say exactly what is missing
+   and why. Do not cancel: a run that reached this point has already done the
+   work, and discarding it leaves nobody anything to approve.
+
+   Otherwise offer retry, proceed with the declared missing object, or cancel.
+   If the user proceeds, do not upload a new set that omits it; doing so would
+   hide the gap.
 
 7. **Attach the reference.** Put
    `transcript: { evidenceId, sessionId, manifest }` on the proposal call the
@@ -177,7 +199,8 @@ quietly propose without evidence.
    each proposal or batch item. Never inline transcript or file contents into MCP.
 
 8. **Recover safely.** For `invalid_evidence`, restart from disclosure and
-   consent with a new set. For `evidence_integrity`, redeclare and re-upload; do
+   consent with a new set — unattended, that disclosure goes to the run log and
+   you continue, exactly as in step 4. For `evidence_integrity`, redeclare and re-upload; do
    not retry the consumed or mismatched set. If the proposal tool the invoking
    workflow requires is absent, stop and report a stale plugin/server or MCP
    connection rather than proposing by another route.

@@ -272,12 +272,32 @@ def scan_transcript(path):
     return list(seen.values())
 
 
+def unattended():
+    """Whether anybody is there to answer a question.
+
+    Dough writes DOUGH_UNATTENDED=1 into a hosted box's config.env, which is
+    sourced with `set -a` before the agent starts. But an environment variable
+    is invisible to a MODEL: Claude Code does not put the process environment
+    into its context, so an agent cannot read this however carefully it is
+    instructed to.
+
+    Reporting it HERE is what makes it observable. The skill already requires
+    the complete output of `scan` to be read, so the flag arrives through a
+    channel the flow depends on rather than one the agent has to know to check.
+
+    Exactly "1". An operator turning this off would write 0 or empty, and a
+    truthiness test on the string would read both as on.
+    """
+    return os.environ.get("DOUGH_UNATTENDED", "") == "1"
+
+
 def cmd_scan(args):
     path = find_transcript(args.cwd, args.session_id, args.home)
     stat = Path(path).stat()
     json.dump(
         {
             "sessionId": Path(path).stem,
+            "unattended": unattended(),
             "transcript": {
                 "path": path,
                 "bytes": stat.st_size,
