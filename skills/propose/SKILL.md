@@ -120,13 +120,18 @@ quietly propose without evidence.
    does not know `evidence`, stop before scanning or proposing. Evidence requires
    dough CLI v0.1.46 or later.
 
-   **Unattended, stop and say why.** There is nobody to open a terminal, so
-   report that the CLI is missing and end the run there. Do not propose without
-   evidence — that trades a missing signature for a missing audit trail, which
-   is the worse of the two.
+   **Find out whether anyone is there before you decide what to do about it.**
+   Run the `scan` from step 3 — it is a plugin script, not the `dough` binary,
+   so it works whether or not the CLI exists, and its `unattended` field is the
+   only way you can learn this. Nothing else in the environment is visible to
+   you.
 
-   Otherwise give the appropriate installer command, ask the user to open a new
-   terminal, and have them rerun their original command:
+   - **`unattended` is `true`:** stop and report that the CLI is missing. There
+     is nobody to open a terminal. Do **not** propose without evidence — that
+     trades a missing signature for a missing audit trail, which is the worse of
+     the two.
+   - **Otherwise:** give the appropriate installer command, ask the user to open
+     a new terminal, and have them rerun their original command:
 
    - macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
    - Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
@@ -141,12 +146,16 @@ quietly propose without evidence.
    `python3` on macOS/Linux or `python` on Windows. Run it as one bare command—no
    `cd`, pipe, or compound shell command—and read its complete output.
 
-   Its `unattended` field tells you **whether anybody is there**. It is `true`
-   on a hosted agent's own machine and `false` wherever a person is present.
-   Every step below that would ask a question depends on it, so read it before
-   you reach one. You cannot determine this any other way: the environment
-   variable behind it is invisible to you, which is exactly why the scan
-   reports it.
+   Its `unattended` field tells you **whether anybody is there**: `true` means
+   nobody is, and `false` means **assume someone is**. It is deliberately
+   false-unless-certain, so a box that predates this flag asks rather than
+   proceeds — the safe direction.
+
+   Every step that would ask a question depends on it, **including step 1**,
+   which is why that step runs this same scan early: it is a plugin script
+   rather than the `dough` binary, so it works with or without the CLI. You
+   cannot determine this any other way — the environment variable behind it is
+   invisible to you, which is exactly why the scan reports it.
 
 4. **Curate and disclose.** Keep only files that substantiate the replacement.
    Give each a one-line note. Show every retained file, its size and note, plus
@@ -180,11 +189,17 @@ quietly propose without evidence.
 6. **Handle incomplete uploads explicitly.** Show every `failed` and `rejected`
    object and relay rejection messages without interpreting their codes.
 
-   **Unattended:** retry once, then **proceed with the object declared
-   missing** — it was declared before bytes moved, so the gap stays visible to
-   the approver, which is the property that matters. Say exactly what is missing
-   and why. Do not cancel: a run that reached this point has already done the
-   work, and discarding it leaves nobody anything to approve.
+   **Unattended: proceed with the object declared missing.** It was declared
+   before bytes moved, so the gap stays visible to the approver, which is the
+   property that matters. Say exactly what is missing and why.
+
+   Do **not** re-run the upload. It mints a NEW evidence set with a new
+   transcript snapshot and abandons the first — which is the very "upload a new
+   set that omits it" the interactive branch forbids below. The transport
+   already retries each object with backoff before reporting it failed, so a
+   failure here has been retried. And do not cancel: a run that reached this
+   point has done the work, and discarding it leaves nobody anything to
+   approve.
 
    Otherwise offer retry, proceed with the declared missing object, or cancel.
    If the user proceeds, do not upload a new set that omits it; doing so would
