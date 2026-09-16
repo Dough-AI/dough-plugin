@@ -118,8 +118,20 @@ quietly propose without evidence.
 
 1. **Check the CLI first.** Run `dough evidence --help`. If `dough` is missing or
    does not know `evidence`, stop before scanning or proposing. Evidence requires
-   dough CLI v0.1.46 or later. Give the appropriate installer command, ask the
-   user to open a new terminal, and have them rerun their original command:
+   dough CLI v0.1.46 or later.
+
+   **Find out whether anyone is there before you decide what to do about it.**
+   Run the `scan` from step 3 — it is a plugin script, not the `dough` binary,
+   so it works whether or not the CLI exists, and its `unattended` field is the
+   only way you can learn this. Nothing else in the environment is visible to
+   you.
+
+   - **`unattended` is `true`:** stop and report that the CLI is missing. There
+     is nobody to open a terminal. Do **not** propose without evidence — that
+     trades a missing signature for a missing audit trail, which is the worse of
+     the two.
+   - **Otherwise:** give the appropriate installer command, ask the user to open
+     a new terminal, and have them rerun their original command:
 
    - macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.sh | sh`
    - Windows: `irm https://raw.githubusercontent.com/Dough-AI/dough-installer/main/install.ps1 | iex`
@@ -134,11 +146,37 @@ quietly propose without evidence.
    `python3` on macOS/Linux or `python` on Windows. Run it as one bare command—no
    `cd`, pipe, or compound shell command—and read its complete output.
 
+   Its `unattended` field tells you **whether anybody is there**: `true` means
+   nobody is, and `false` means **assume someone is**. It is deliberately
+   false-unless-certain, so a box that predates this flag asks rather than
+   proceeds — the safe direction.
+
+   Every step that would ask a question depends on it, **including step 1**,
+   which is why that step runs this same scan early: it is a plugin script
+   rather than the `dough` binary, so it works with or without the CLI. You
+   cannot determine this any other way — the environment variable behind it is
+   invisible to you, which is exactly why the scan reports it.
+
 4. **Curate and disclose.** Keep only files that substantiate the replacement.
    Give each a one-line note. Show every retained file, its size and note, plus
    the session transcript, which is always uploaded. State the limits: 25 MB per
-   object, 100 MB per set, and 64 objects. Obtain clear user consent before any
-   upload.
+   object, 100 MB per set, and 64 objects.
+
+   Then, **consent — which depends on whether anyone is there.**
+
+   - **`unattended` was `true` in the scan output** (a hosted agent on its own
+     machine): say all of the above as a message, then **continue without
+     asking**. Nobody is reading, and a question here strands the run holding a
+     rented machine. The disclosure is not skipped — it is the record, and it
+     lands in the run log where the agent's owner reads it afterwards.
+   - **Otherwise:** obtain clear user consent before any upload, as always.
+
+   Proceeding unattended is not a lowered bar. **The proposal is still approved
+   by a person** before anything is booked, so consent for the upload was given
+   in advance by whoever configured the agent to run this way, and consent for
+   the booking is still given afterwards, per entry. What you must never do is
+   propose *without* evidence because nobody was available to approve attaching
+   it — that would trade a missing signature for a missing audit trail.
 
 5. **Upload once.** Run one bare command:
 
@@ -149,9 +187,23 @@ quietly propose without evidence.
    move so missing objects remain visible to the approver.
 
 6. **Handle incomplete uploads explicitly.** Show every `failed` and `rejected`
-   object and relay rejection messages without interpreting their codes. Offer
-   retry, proceed with the declared missing object, or cancel. If the user
-   proceeds, do not upload a new set that omits it; doing so would hide the gap.
+   object and relay rejection messages without interpreting their codes.
+
+   **Unattended: proceed with the object declared missing.** It was declared
+   before bytes moved, so the gap stays visible to the approver, which is the
+   property that matters. Say exactly what is missing and why.
+
+   Do **not** re-run the upload. It mints a NEW evidence set with a new
+   transcript snapshot and abandons the first — which is the very "upload a new
+   set that omits it" the interactive branch forbids below. The transport
+   already retries each object with backoff before reporting it failed, so a
+   failure here has been retried. And do not cancel: a run that reached this
+   point has done the work, and discarding it leaves nobody anything to
+   approve.
+
+   Otherwise offer retry, proceed with the declared missing object, or cancel.
+   If the user proceeds, do not upload a new set that omits it; doing so would
+   hide the gap.
 
 7. **Attach the reference.** Put
    `transcript: { evidenceId, sessionId, manifest }` on the proposal call the
@@ -162,7 +214,8 @@ quietly propose without evidence.
    each proposal or batch item. Never inline transcript or file contents into MCP.
 
 8. **Recover safely.** For `invalid_evidence`, restart from disclosure and
-   consent with a new set. For `evidence_integrity`, redeclare and re-upload; do
+   consent with a new set — unattended, that disclosure goes to the run log and
+   you continue, exactly as in step 4. For `evidence_integrity`, redeclare and re-upload; do
    not retry the consumed or mismatched set. If the proposal tool the invoking
    workflow requires is absent, stop and report a stale plugin/server or MCP
    connection rather than proposing by another route.
