@@ -5,6 +5,7 @@ passes both before and after a change measures nothing. The controls at the end
 are the important ones — a clean bridge proves nothing on its own.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ period: month
 outputs:
   - id: reclass
     kind: workbook
-    build: "true"
+    build: "cp prepared/{period}.xlsx output/{period}/candidate.xlsx"
     candidate:
       file: output/{period}/candidate.xlsx
     reference:
@@ -272,7 +273,7 @@ period: week
 outputs:
   - id: reclass
     kind: workbook
-    build: "true"
+    build: "cp prepared/{period}.xlsx output/{period}/candidate.xlsx"
     candidate:
       file: output/{period}/candidate.xlsx
     reference:
@@ -296,6 +297,8 @@ def build_two_period_agent(tmp_path: Path, first_differs=True) -> Path:
     (agent / "eval" / "eval.yaml").write_text(TWO_PERIODS)
     for period, candidate_total in (("2026-w01", 90.0 if first_differs else 100.0),
                                     ("2026-w02", 200.0), ("2026-w03", 300.0)):
+        # what the build will produce, staged in with the agent
+        write_book(agent / "prepared" / f"{period}.xlsx", {"Summary": [["Total", candidate_total]]})
         write_book(agent / "output" / period / "candidate.xlsx",
                    {"Summary": [["Total", candidate_total]]})
     for period, reference_total in (("2026-w01", 100.0), ("2026-w02", 200.0), ("2026-w03", 300.0)):
@@ -355,19 +358,19 @@ def test_revealing_a_holdout_records_it_as_spent(tmp_path):
 
 def test_every_output_is_built_not_only_the_first(tmp_path):
     """A second output with its own build command must run, or it is compared
-    against whatever file happened to be there."""
+    against whatever file happened to be there. The marker lands beside the
+    candidate, so this also proves collection brings a build's extras back out
+    of staging."""
     agent = build_two_period_agent(tmp_path, first_differs=False)
     spec = (agent / "eval" / "eval.yaml").read_text()
     second = spec[spec.index("  - id: reclass"):spec.index("eval_set:")]
     second = (second.replace("- id: reclass", "- id: second")
-                    .replace('build: "true"', 'build: "echo built-second > built-second.txt"')
-                    .replace("file: output/{period}/candidate.xlsx",
-                             "file: output/{period}/candidate.xlsx   # same artefact, own command"))
+                    .replace('build: "cp prepared/{period}.xlsx output/{period}/candidate.xlsx"',
+                             'build: "cp prepared/{period}.xlsx output/{period}/candidate.xlsx && '
+                             'echo second > output/{period}/built-second.txt"'))
     (agent / "eval" / "eval.yaml").write_text(spec.replace("eval_set:", second + "eval_set:"))
-    # the first output's candidate already exists, so only --rebuild reaches the
-    # second command; without the fix it is never run at all
     run_eval(agent, "--rebuild")
-    assert (agent / "built-second.txt").exists()
+    assert (agent / "output" / "2026-w01" / "built-second.txt").exists()
 
 
 # ── the six findings from review, each with the test that was missing ────────
@@ -489,3 +492,181 @@ def test_two_occurrences_of_one_row_get_different_ids(tmp_path):
     steps = steps_of(bridge, "lines")
     assert len(steps) == 2
     assert len({s["id"] for s in steps}) == 2, "both occurrences share one id"
+
+
+# ── staging and the blindness audit ──────────────────────────────────────────
+
+STAGE = Path(__file__).parent.parent / "skills" / "agent-gym" / "scripts" / "stage.py"
+
+
+def run_stage(agent: Path, period: str, *flags):
+    return subprocess.run([sys.executable, str(STAGE), str(agent), period, *flags],
+                          capture_output=True, text=True)
+
+
+def staged_agent(tmp_path: Path) -> Path:
+    """Three periods of inputs, references inside the workspace so the audit has
+    something local to find."""
+    agent = build_two_period_agent(tmp_path, first_differs=False)
+    for period in ("2026-w01", "2026-w02", "2026-w03"):
+        d = agent / "inputs" / period
+        d.mkdir(parents=True)
+        (d / "rows.csv").write_text(f"period,{period}\n")
+    return agent
+
+
+def test_staging_carries_only_inputs_up_to_the_period(tmp_path):
+    agent = staged_agent(tmp_path)
+    result = run_stage(agent, "2026-w02", "--root", str(tmp_path / "stage"))
+    staging = Path(result.stdout.strip())
+    # the period's OWN inputs are what the build reads, so they must be there
+    assert sorted(p.name for p in (staging / "inputs").iterdir()) == ["2026-w01", "2026-w02"]
+
+
+def test_staging_drops_candidates_already_built(tmp_path):
+    """`output/` holds candidates for every period, holdouts included — a later
+    period's answer sitting in the working directory."""
+    agent = staged_agent(tmp_path)
+    staging = Path(run_stage(agent, "2026-w02", "--root", str(tmp_path / "stage")).stdout.strip())
+    assert (staging / "output" / "2026-w01" / "candidate.xlsx").exists()   # earlier period stays
+    assert not (staging / "output" / "2026-w02" / "candidate.xlsx").exists()  # its own: dropped
+    assert not (staging / "output" / "2026-w03").exists()                   # later: never copied
+
+
+def test_staging_leaves_the_eval_folder_behind(tmp_path):
+    """The references and the eval config are what the build must not see."""
+    agent = staged_agent(tmp_path)
+    staging = Path(run_stage(agent, "2026-w02", "--root", str(tmp_path / "stage")).stdout.strip())
+    assert not (staging / "eval").exists()
+    assert (staging / "scripts").exists() or (staging / "refs").exists()
+
+
+def test_staging_records_what_it_excluded_outside_the_staging_directory(tmp_path):
+    """The manifest the agent can see must not name the references: that is a map
+    to the answers, and reading it used to look like contamination."""
+    agent = staged_agent(tmp_path)
+    staging = Path(run_stage(agent, "2026-w01", "--root", str(tmp_path / "stage")).stdout.strip())
+    manifest = json.loads((staging / ".gym-staging.json").read_text())
+    assert manifest["periods_carried"] == {"inputs": "<= 2026-w01", "output": "< 2026-w01"}
+    assert "references_excluded" not in manifest
+    assert "reference" not in (staging / ".gym-staging.json").read_text()
+
+    sidecar = json.loads((staging.parent / "2026-w01.excluded.json").read_text())
+    assert any("2026-w03" in p for p in sidecar["references_excluded"])
+
+
+def test_audit_reports_blind_when_no_reference_was_read(tmp_path):
+    agent = staged_agent(tmp_path)
+    log = tmp_path / "run.jsonl"
+    log.write_text(json.dumps({"tool": "Read", "path": str(agent / "inputs" / "2026-w01" / "rows.csv")}))
+    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["verdict"] == "blind"
+
+
+def test_audit_catches_a_reference_that_was_read(tmp_path):
+    agent = staged_agent(tmp_path)
+    log = tmp_path / "run.jsonl"
+    log.write_text(json.dumps({"tool": "Read",
+                               "path": str(agent / "refs" / "2026-w03" / "reference.xlsx")}))
+    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["verdict"] == "contaminated"
+    assert any("2026-w03" in p for p in payload["references_touched"])
+
+
+def test_an_audit_with_nothing_to_read_is_not_a_pass(tmp_path):
+    """Silence must not look like evidence: no transcript means unverified."""
+    agent = staged_agent(tmp_path)
+    result = run_stage(agent, "2026-w01", "--audit")
+    assert json.loads(result.stdout)["verdict"] == "not audited"
+    assert result.returncode == 2
+    missing = run_stage(agent, "2026-w01", "--audit", str(tmp_path / "nope.jsonl"))
+    assert json.loads(missing.stdout)["verdict"] == "not audited"
+
+
+def test_audit_catches_a_tilde_path_in_a_shell_command(tmp_path, monkeypatch):
+    """A Bash call hides the read inside a string, and ~ is the usual way to
+    write it. Matching only /-prefixed paths missed this entirely."""
+    agent = staged_agent(tmp_path)
+    ref = agent / "refs" / "2026-w03" / "reference.xlsx"
+    tilde = "~" + str(ref)[len(str(Path.home())):] if str(ref).startswith(str(Path.home())) else None
+    log = tmp_path / "run.jsonl"
+    log.write_text(json.dumps({"tool": "Bash", "command": f"cat {tilde or ref}"}))
+    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    assert result.returncode == 1, result.stdout
+    touched = json.loads(result.stdout)["references_touched"]
+    # It must be caught as a PATH, not merely by its filename: the name check
+    # would report this log either way, which would hide a broken path regex.
+    assert any(p.startswith("/") for p in touched), touched
+
+
+def test_audit_catches_a_reference_opened_by_bare_filename(tmp_path):
+    """After a cd there is no directory in the command at all — only the name."""
+    agent = staged_agent(tmp_path)
+    log = tmp_path / "run.jsonl"
+    log.write_text("cd somewhere && cat reference.xlsx")     # a flat log line: an action
+    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    assert result.returncode == 1
+    assert any("reference.xlsx" in p for p in json.loads(result.stdout)["references_touched"])
+
+
+def test_audit_matches_a_path_through_a_symlinked_directory(tmp_path):
+    """The same file under two spellings is the same file. On macOS /tmp is a
+    symlink to /private/tmp, and comparing unresolved strings missed it — the
+    filename check hid the gap, so this one logs the path through a symlink whose
+    basename is not a reference name."""
+    agent = staged_agent(tmp_path)
+    link = tmp_path / "shortcut"
+    link.symlink_to(agent / "refs", target_is_directory=True)
+    through_link = link / "2026-w03" / "reference.xlsx"
+    assert str(through_link) != os.path.realpath(through_link)
+
+    log = tmp_path / "run.jsonl"
+    log.write_text(json.dumps({"tool": "Bash", "command": f"cat {through_link}"}))
+    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    touched = json.loads(result.stdout)["references_touched"]
+    assert any(p.startswith("/") for p in touched), touched
+
+
+def test_the_period_being_built_keeps_its_own_inputs(tmp_path):
+    """Found by the first agent-mode run: the 'earlier periods only' rule was
+    applied to inputs/ as well as output/, so the build had nothing to read and
+    stopped. Correct for a candidate, wrong for the data."""
+    agent = staged_agent(tmp_path)
+    staging = Path(run_stage(agent, "2026-w02", "--root", str(tmp_path / "stage")).stdout.strip())
+    assert (staging / "inputs" / "2026-w02" / "rows.csv").exists()     # its own: required
+    assert (staging / "inputs" / "2026-w01" / "rows.csv").exists()     # history: allowed
+    assert not (staging / "inputs" / "2026-w03").exists()              # later: never
+    assert not (staging / "output" / "2026-w02" / "candidate.xlsx").exists()   # its answer: no
+
+
+def test_a_path_only_quoted_back_to_the_agent_is_not_a_read(tmp_path):
+    """A transcript holds both what the run did and what it saw. A reference path
+    appearing in a tool RESULT — a listing, a file that mentions it — is not a
+    read, and counting it called a clean run contaminated."""
+    agent = staged_agent(tmp_path)
+    ref = agent / "refs" / "2026-w03" / "reference.xlsx"
+    log = tmp_path / "run.jsonl"
+    log.write_text("\n".join([
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "/somewhere/safe.txt"}}]}}),
+        json.dumps({"type": "user", "message": {"content": [
+            {"type": "tool_result", "content": f"here is a manifest mentioning {ref}"}]}}),
+    ]))
+    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    assert json.loads(result.stdout)["verdict"] == "blind", result.stdout
+    assert result.returncode == 0
+
+
+def test_a_reference_the_run_actually_opened_is_still_caught(tmp_path):
+    """The other half of the same rule: a tool_use naming it does count."""
+    agent = staged_agent(tmp_path)
+    ref = agent / "refs" / "2026-w03" / "reference.xlsx"
+    log = tmp_path / "run.jsonl"
+    log.write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Read", "input": {"file_path": str(ref)}}]}}))
+    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    assert json.loads(result.stdout)["verdict"] == "contaminated"
+    assert result.returncode == 1

@@ -209,6 +209,47 @@ never spend a holdout proving a fix that has not been made.
 test: it shows nothing broke, not that the agent generalises. The report carries
 a ledger of how many remain, and says so when none do.
 
+Every build runs in a **staging directory** — a copy of the agent holding only
+what that period may see: its own files, `inputs/` up to and including the
+period, `output/` strictly before it, and no `eval/` at all. The candidate is
+copied back afterwards. So a build cannot read the reference it is about to be
+scored against, or a later period's data, by construction rather than by
+convention.
+
+## Agent mode: testing the agent, not the script
+
+`build:` runs a script, which tests the script. To test the **agent** — its
+CLAUDE.md, its rules, its judgement — hand the staged directory to a subagent
+and collect what it produces:
+
+```bash
+# 1. stage the period and stop
+uv run --with pyyaml --with openpyxl scripts/eval.py <agent-dir> --prepare <period>
+
+# 2. dispatch a subagent whose working directory is the path that printed, with
+#    no other context. It reads the agent's CLAUDE.md and builds the output.
+
+# 3. collect it, audit what it read, and bridge it
+uv run --with pyyaml --with openpyxl scripts/eval.py <agent-dir> --collect <period> \
+  --transcript ~/.claude/projects/<slug>/<session>/subagents/agent-<id>.jsonl
+```
+
+The gym cannot dispatch a subagent — only you can — so it stages the work, hands
+the directory over, and takes the result back, keeping the books either way.
+
+**The audit is what makes blindness evidence rather than a claim.** Staging is
+hygiene, not a wall: every tool takes absolute paths, and an agent asked to
+reproduce someone's workbook has a genuine reason to go looking for one. So the
+audit reads the run's transcript and reports every reference path the run
+*acted* on. Three verdicts, all recorded in the bridge under `blindness`:
+
+- `blind` — nothing outside staging was opened. The result counts.
+- `contaminated` — a reference was read while the candidate was being built. The
+  candidate is worthless, and if the period was a holdout its blind result is
+  gone for good.
+- `not audited` — there was no transcript to read. Blindness is **unverified,
+  not proven**, and this never exits 0.
+
 Reports land in `<agent>/eval/reports/<run>/`, numbered and never overwritten:
 one `<period>.bridge.json` per period plus a `report.json` for the run.
 
@@ -269,12 +310,15 @@ Say so plainly rather than implying coverage:
 
 - **Workbooks only.** `kind: workbook` is the only reader; a Google Sheet, a
   JSON summary or a lake table fails loudly with the kinds it knows.
-- **It runs the agent's build command, nothing more.** Whatever `build:` names
-  is what gets tested — today a script, so the agent's own reading of its
-  instructions is never exercised. The run's `report.json` says `mode: script`
-  whatever the command actually was, so do not read it as evidence of what ran —
-  and a single-period bridge carries no `mode` at all.
-- **Blindness is a convention here, not a wall.** Keep references outside the
-  workspace; nothing yet stops a build from reading one.
+- **The default loop tests the build command, not the agent.** Whatever `build:`
+  names is what runs, so the agent's own reading of its instructions is never
+  exercised. `report.json` says `mode: script` whatever the command actually
+  was, so do not read it as evidence of what ran; a single-period bridge carries
+  no `mode` at all. Agent mode (above) is the path that tests the agent, and it
+  is driven one period at a time by hand.
+- **The audit sees what a transcript records.** It reads tool calls, so work
+  done outside one — a person opening the reference and typing a figure in — is
+  invisible to it. `not audited` is the honest verdict when there is nothing to
+  read, and it is not a failure of the agent.
 - **No input parity.** Whether the lake could replace a hand-fetched input is
   not scored.

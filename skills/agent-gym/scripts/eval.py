@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -33,6 +34,8 @@ except ModuleNotFoundError:                                   # pragma: no cover
     )
 
 GYM = Path(__file__).resolve().parent
+sys.path.insert(0, str(GYM))
+from stage import audit, stage            # noqa: E402  (same folder, not a package)
 REVEALED = "revealed.json"          # which holdouts have been spent, and when
 
 
@@ -61,26 +64,60 @@ def next_run_dir(agent: Path) -> Path:
     return path
 
 
-def build(agent: Path, spec: dict, period: str, rebuild: bool) -> tuple[bool, str]:
-    """Run the build for every output, not only the first.
+def default_staging(agent: Path, period: str) -> Path:
+    """Where --prepare put it. Staging is deterministic so --collect can find it
+    without being told."""
+    return Path("/tmp") / "agent-gym-staging" / agent.name / period
 
-    One command often writes several outputs, so a command is run once however
-    many outputs name it — but an agent whose second output has its own command
-    gets it run, instead of being silently compared against a stale file.
+
+def collect(agent: Path, spec: dict, period: str, staging: Path) -> list[str]:
+    """Copy each output's candidate out of the staging directory.
+
+    The build ran somewhere the references do not exist, so its result has to be
+    brought back before anything can compare it.
     """
+    brought = []
+    for output in spec["outputs"]:
+        rel = output["candidate"]["file"].format(period=period)
+        source, target = staging / rel, agent / rel
+        if not source.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        brought.append(rel)
+        for extra in source.parent.glob("*"):            # summary.json and friends
+            if extra.is_file() and extra != source:
+                shutil.copy2(extra, target.parent / extra.name)
+    return brought
+
+
+def build(agent: Path, spec: dict, period: str, rebuild: bool) -> tuple[bool, str]:
+    """Build every output for one period, inside a staging directory.
+
+    Staging is what makes blindness structural rather than promised: the build
+    runs against a copy holding only this period's own past — no `eval/`, so no
+    reference, and no later period's inputs or candidates. What it produces is
+    copied back here afterwards.
+    """
+    wanted = [agent / o["candidate"]["file"].format(period=period) for o in spec["outputs"]]
+    if all(c.exists() for c in wanted) and not rebuild:
+        return True, "candidate already built"
+
+    staging = stage(agent, period, None)
     ran: set[str] = set()
     for output in spec["outputs"]:
-        candidate = agent / output["candidate"]["file"].format(period=period)
-        if candidate.exists() and not rebuild:
-            continue
         command = output["build"].format(period=period)
         if command in ran:
             continue
-        result = subprocess.run(command, shell=True, cwd=agent, capture_output=True, text=True)
+        result = subprocess.run(command, shell=True, cwd=staging, capture_output=True, text=True)
         ran.add(command)
         if result.returncode != 0:
             return False, (result.stderr or result.stdout).strip().splitlines()[-1][:300]
-    return True, "built" if ran else "candidate already built"
+    brought = collect(agent, spec, period, staging)
+    if not brought:
+        return False, (f"the build produced no candidate in {staging} — expected "
+                       + ", ".join(o["candidate"]["file"].format(period=period) for o in spec["outputs"]))
+    return True, f"built in staging ({', '.join(brought)})"
 
 
 def bridge(agent: Path, period: str, out_dir: Path) -> dict:
@@ -101,6 +138,12 @@ def main() -> int:
     ap.add_argument("--reveal-holdout", action="store_true",
                     help="spend one unseen holdout at the end of this run")
     ap.add_argument("--rebuild", action="store_true", help="rebuild candidates that already exist")
+    ap.add_argument("--prepare", metavar="PERIOD",
+                    help="stage one period for an agent to build, and stop")
+    ap.add_argument("--collect", metavar="PERIOD",
+                    help="take what an agent built in staging, audit it, and bridge it")
+    ap.add_argument("--transcript", nargs="*", default=[],
+                    help="with --collect: the run's transcript(s), to audit for reads")
     ap.add_argument("--all", action="store_true",
                     help="run every development period instead of stopping at the first "
                          "that needs disposition")
@@ -123,6 +166,45 @@ def main() -> int:
     holdouts = [c for c in cases if c["role"] == "holdout"]
     spent = [c for c in holdouts if c["period"] in state]
     unseen = [c for c in holdouts if c["period"] not in state]
+
+    # ── agent mode: the gym cannot dispatch a subagent, only a model can. So it
+    # stages the work, hands the directory over, and takes the result back —
+    # keeping the books either way.
+    if args.prepare:
+        staging = stage(agent, args.prepare, None)
+        outputs = ", ".join(o["candidate"]["file"].format(period=args.prepare)
+                            for o in spec["outputs"])
+        print(f"staged: {staging}\n"
+              f"period: {args.prepare}\n"
+              f"expected output(s): {outputs}\n\n"
+              "Have the agent work IN that directory and produce those files. It holds\n"
+              "no eval/ and no later period, so it cannot read its own reference.\n"
+              f"Then: eval.py {agent} --collect {args.prepare} --transcript <run.jsonl>")
+        return 0
+
+    if args.collect:
+        period = args.collect
+        # Never re-stage here: staging is destructive, and re-running it would
+        # wipe the very candidate this is meant to collect.
+        staging = default_staging(agent, period)
+        brought = collect(agent, spec, period, staging)
+        if not brought:
+            sys.exit(f"nothing to collect: no candidate under {staging}")
+        checked = audit(agent, period, [Path(t).expanduser() for t in args.transcript], staging)
+        run_dir = next_run_dir(agent)
+        report = bridge(agent, period, run_dir)
+        report["role"] = next((c.get("role") for c in cases if c["period"] == period), None)
+        report["mode"] = "agent"
+        report["collected"] = brought
+        report["blindness"] = checked
+        if checked["verdict"] == "contaminated":
+            report["verdict"] = "contaminated"
+        (run_dir / f"{period}.bridge.json").write_text(json.dumps(report, indent=2) + "\n")
+        print(f"{period} — {report['verdict']} | blindness: {checked['verdict']}"
+              + (f" ({', '.join(checked['references_touched'])})" if checked["references_touched"] else ""))
+        if checked["verdict"] == "not audited":
+            print("  no transcript was audited: blindness here is unverified, not proven")
+        return 0 if report["verdict"] == "pass" and checked["verdict"] == "blind" else 1
 
     run_dir = next_run_dir(agent)
     run = run_dir.name
