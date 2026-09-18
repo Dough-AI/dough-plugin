@@ -252,3 +252,94 @@ def test_a_disposition_without_a_name_is_refused(tmp_path):
     )
     result, _ = compare(agent, tmp_path / "out")
     assert "accepted_by" in (result.stderr + result.stdout)
+
+
+# ── eval.py: the walk-forward loop ───────────────────────────────────────────
+
+EVAL_SCRIPT = Path(__file__).parent.parent / "skills" / "agent-gym" / "scripts" / "eval.py"
+
+TWO_PERIODS = """
+agent: test-agent
+period: week
+outputs:
+  - id: reclass
+    kind: workbook
+    build: "true"
+    candidate:
+      file: output/{period}/candidate.xlsx
+    reference:
+      file: refs/{period}/reference.xlsx
+    components:
+      - id: total
+        kind: figure
+        metric: exact
+        reference: {sheet: Summary, label: Total, label_col: A, value_col: B}
+        candidate: {sheet: Summary, label: Total, label_col: A, value_col: B}
+eval_set:
+  - {period: 2026-w01, role: development}
+  - {period: 2026-w02, role: development}
+  - {period: 2026-w03, role: holdout}
+"""
+
+
+def build_two_period_agent(tmp_path: Path, first_differs=True) -> Path:
+    agent = tmp_path / "agent"
+    (agent / "eval").mkdir(parents=True)
+    (agent / "eval" / "eval.yaml").write_text(TWO_PERIODS)
+    for period, candidate_total in (("2026-w01", 90.0 if first_differs else 100.0),
+                                    ("2026-w02", 200.0), ("2026-w03", 300.0)):
+        write_book(agent / "output" / period / "candidate.xlsx",
+                   {"Summary": [["Total", candidate_total]]})
+    for period, reference_total in (("2026-w01", 100.0), ("2026-w02", 200.0), ("2026-w03", 300.0)):
+        write_book(agent / "refs" / period / "reference.xlsx",
+                   {"Summary": [["Total", reference_total]]})
+    return agent
+
+
+def run_eval(agent: Path, *flags):
+    return subprocess.run([sys.executable, str(EVAL_SCRIPT), str(agent), *flags],
+                          capture_output=True, text=True)
+
+
+def periods_in_latest_report(agent: Path) -> list[str]:
+    runs = sorted((agent / "eval" / "reports").iterdir())
+    report = json.loads((runs[-1] / "report.json").read_text())
+    return [p["period"] for p in report["periods"]]
+
+
+def test_training_stops_at_the_first_period_needing_disposition(tmp_path):
+    """Week 1 is settled before week 2 is opened: rules written against several
+    periods at once are fitted to all of them, and none was ever a test."""
+    agent = build_two_period_agent(tmp_path)
+    result = run_eval(agent)
+    assert result.returncode != 0
+    assert periods_in_latest_report(agent) == ["2026-w01"]
+    assert "settle it" in result.stdout
+
+
+def test_all_flag_runs_every_development_period(tmp_path):
+    agent = build_two_period_agent(tmp_path)
+    run_eval(agent, "--all")
+    assert periods_in_latest_report(agent) == ["2026-w01", "2026-w02"]
+
+
+def test_a_clean_period_does_not_stop_the_run(tmp_path):
+    agent = build_two_period_agent(tmp_path, first_differs=False)
+    result = run_eval(agent)
+    assert result.returncode == 0
+    assert periods_in_latest_report(agent) == ["2026-w01", "2026-w02"]
+
+
+def test_a_holdout_is_not_spent_without_asking(tmp_path):
+    agent = build_two_period_agent(tmp_path, first_differs=False)
+    run_eval(agent)
+    assert not (agent / "eval" / "revealed.json").exists()
+    assert "2026-w03" not in periods_in_latest_report(agent)
+
+
+def test_revealing_a_holdout_records_it_as_spent(tmp_path):
+    agent = build_two_period_agent(tmp_path, first_differs=False)
+    run_eval(agent, "--reveal-holdout")
+    assert "2026-w03" in periods_in_latest_report(agent)
+    spent = json.loads((agent / "eval" / "revealed.json").read_text())
+    assert "2026-w03" in spent

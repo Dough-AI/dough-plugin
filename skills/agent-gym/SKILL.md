@@ -69,20 +69,69 @@ Dough as saved queries with declared parameters, referenced by id — never SQL
 copied into the agent. If they do not exist yet, write the SQL with
 `integrations.query`, verify it for one period, then `queries.save` it and put
 the id in the agent's config. Explain that a saved query is the org's shared
-asset: editing it changes everyone's numbers.
+asset: editing it changes everyone's numbers, and there is a budget — see
+guardrail 2.
 
-**6. Write `eval/eval.yaml`** and run one development period. Expect to fix the
+**6. Write `eval/eval.yaml`** and run the EARLIEST development period, not all
+of them. Expect to fix the
 mapping once or twice — a blank figure usually means the address is wrong, not
 that the number is missing.
+
+## Three standing guardrails
+
+**1. Aggregation belongs in the sheet, not in SQL — and never remove one that is
+already there.** A reviewer's first instinct is to change a row and watch the
+totals move. That only works if the totals are live: SUMIFS, COUNTIFS or a pivot
+over the data in the same file. So:
+
+- Pull the lowest grain the deliverable needs into the data sheets, and compute
+  every subtotal with formulas over whole columns, so a refresh of any row count
+  recomputes without touching a formula.
+- **Keep the aggregates the accountant already built.** If their workbook has a
+  pivot or a block of COUNTIFS, reproduce that shape rather than replacing it
+  with a value the agent computed. Losing it is a real regression to them even
+  when every figure agrees.
+- Treat a candidate that hard-codes a figure the reference computed as a
+  finding, not a convenience. The bridge will show the numbers matching; what it
+  cannot see is that one side stopped recalculating.
+- A pivot cache does not recompute on file write, so if a pivot has to stay,
+  say plainly that it needs opening in Excel to refresh — do not quote a figure
+  read from a stale cache.
+
+**2. Saved queries: enough, and no more.** Push the SQL into Dough as saved
+queries with declared parameters — that is what makes it re-runnable by anyone
+and stops SQL being copied into the agent. But a query per figure is its own
+mess: every one is a shared org asset someone else can edit.
+
+- Aim for **one saved query per managed data sheet**, at the lowest grain that
+  sheet needs, and derive every figure from it with formulas.
+- A close of this size lands at roughly four to six. If a workbook is heading
+  past that, the extra queries are usually aggregates that belong in formulas,
+  or near-duplicates that differ by a filter a parameter could carry.
+- Before adding one, check `queries.list` for an existing query that already
+  covers it. Reuse keeps the org's numbers consistent; a second query with a
+  slightly different filter is how two teams end up with two revenue figures.
+
+**3. Train one period at a time, in order.** Run the earliest period, settle
+what it shows, then open the next — week 1 and its result, then week 2, and on
+until the holdouts. `eval.py` stops at the first development period that needs
+disposition for exactly this reason; `--all` overrides it for a regression sweep
+of months already settled.
+
+Running six months at once and fixing everything together produces rules fitted
+to all six, and none of them was ever a test. Taking them in order means each
+period is a small, honest check on what the last one taught you — and it is what
+has generalised best in practice.
 
 ## Running
 
 ```bash
-uv run --with pyyaml --with openpyxl scripts/eval.py <agent-dir> [--reveal-holdout] [--rebuild]
+uv run --with pyyaml --with openpyxl scripts/eval.py <agent-dir> [--reveal-holdout] [--rebuild] [--all]
 uv run --with pyyaml --with openpyxl scripts/compare.py <agent-dir> <period>   # one period
 ```
 
-The loop: development periods oldest first, then every holdout already revealed
+The loop: development periods oldest first, **stopping at the first one that
+needs disposition** (guardrail 3), then every holdout already revealed
 as a regression, then **at most one unseen holdout, last, and only with
 `--reveal-holdout`**. A failing regression stops the run before any reveal —
 never spend a holdout proving a fix that has not been made.

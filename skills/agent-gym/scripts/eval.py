@@ -4,7 +4,9 @@
   uv run --with pyyaml --with openpyxl eval.py <agent-dir> [--reveal-holdout] [--rebuild]
 
 Order (the walk-forward rule):
-  1. Development periods, oldest first: build a candidate, then bridge it.
+  1. Development periods, oldest first: build a candidate, bridge it, and STOP
+     at the first one that needs disposition. Train period by period — settle
+     week 1 before week 2 is opened. `--all` runs them without stopping.
   2. Every holdout already revealed, as a REGRESSION — it proves nothing broke.
   3. At most ONE unseen holdout, revealed last, and only with --reveal-holdout.
 
@@ -82,6 +84,9 @@ def main() -> int:
     ap.add_argument("--reveal-holdout", action="store_true",
                     help="spend one unseen holdout at the end of this run")
     ap.add_argument("--rebuild", action="store_true", help="rebuild candidates that already exist")
+    ap.add_argument("--all", action="store_true",
+                    help="run every development period instead of stopping at the first "
+                         "that needs disposition")
     args = ap.parse_args()
 
     agent = Path(args.agent_dir).expanduser().resolve()
@@ -119,6 +124,14 @@ def main() -> int:
         if role == "regression" and report["verdict"] != "pass":
             stopped = f"regression failed on {period}"
             break
+        # Train one period at a time. Settling this period's differences before
+        # the next is opened is what makes the agent generalise: a rule written
+        # against six months at once is fitted to all six, and none of them was
+        # ever a test. --all overrides, for a regression sweep of settled months.
+        if role == "development" and report["verdict"] != "pass" and not args.all:
+            stopped = (f"{period} needs disposition — settle it, then run again "
+                       "to move on to the next period")
+            break
 
     # The reveal comes last, and only if nothing above failed.
     if unseen and args.reveal_holdout and not stopped:
@@ -142,6 +155,7 @@ def main() -> int:
     report = {
         "agent": spec.get("agent", agent.name),
         "run": run,
+        "sequential": not args.all,
         "ran_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "mode": "script",                     # the agent's build command, not an agent session
         "verdict": "pass" if not failed and not stopped else "needs disposition",
