@@ -124,18 +124,32 @@ def stage(agent: Path, period: str, root: Path | None) -> Path:
 
 # ── the audit ────────────────────────────────────────────────────────────────
 # A Bash call hides its file access inside a shell string, so the audit reads the
-# whole text rather than a `file_path` field. Three forms have to be caught: an
-# absolute path, a ~-relative one, and — for a read made after a `cd`, where no
-# directory appears at all — the reference's own filename.
-PATH_RE = re.compile(r"((?:/|~/)[^\s\"',;:()\[\]]+)")
+# whole text rather than a `file_path` field. Four forms have to be caught: an
+# absolute POSIX path, a ~-relative one, a Windows path behind a drive letter,
+# and — for a read made after a `cd`, where no directory appears at all — the
+# reference's own filename.
+PATH_RE = re.compile(r"([A-Za-z]:[\\/][^\s\"',;:()\[\]]*"
+                     r"|(?:/|~[\\/])[^\s\"',;:()\[\]]+)")
+
+
+def resolved(path) -> str:
+    """One spelling per file.
+
+    Symlinks are followed and case is folded where the platform folds it, so the
+    two ways to name the same file compare equal: on macOS `/tmp` is a symlink to
+    `/private/tmp`, and on Windows `C:\\Users` and `c:\\users` are one directory.
+    Comparing raw strings silently missed both.
+    """
+    return os.path.normcase(os.path.realpath(path))
 
 
 def paths_in(text: str) -> set[str]:
     found = set()
     for raw in PATH_RE.findall(text):
-        cleaned = raw.replace("\\ ", " ").rstrip("\\")
+        # A transcript is JSON, so a Windows separator arrives doubled.
+        cleaned = raw.replace("\\\\", "\\").replace("\\ ", " ").rstrip("\\")
         found.add(cleaned)
-        if cleaned.startswith("~/"):
+        if cleaned.startswith("~"):
             found.add(str(Path.home()) + cleaned[1:])
     return found
 
@@ -178,8 +192,8 @@ def audit(agent: Path, period: str, transcripts: list[Path], staging: Path | Non
     stays an assumption.
     """
     spec = load_spec(agent)
-    refs = {os.path.realpath(p) for p in reference_paths(agent, spec) if p.exists()}
-    ref_dirs = {os.path.realpath(p.parent) for p in reference_paths(agent, spec)}
+    refs = {resolved(p) for p in reference_paths(agent, spec) if p.exists()}
+    ref_dirs = {resolved(p.parent) for p in reference_paths(agent, spec)}
 
     seen: set[str] = set()
     acted: list[str] = []
@@ -191,14 +205,13 @@ def audit(agent: Path, period: str, transcripts: list[Path], staging: Path | Non
         text = actions_text(path)
         acted.append(text)
         for found in paths_in(text):
-            # Compare symlink-resolved forms on both sides. On macOS /tmp is a
-            # symlink to /private/tmp, so a logged path and the reference it names
-            # can be the same file under two spellings — and the check missed it.
-            seen.add(found)
-            seen.add(os.path.realpath(found))
+            # Both sides go through `resolved`, or the same file under two
+            # spellings compares unequal and the check silently misses it.
+            seen.add(os.path.normcase(found))
+            seen.add(resolved(found))
 
     touched_refs = {p for p in seen if p in refs
-                    or any(p.startswith(d + "/") for d in ref_dirs)}
+                    or any(p.startswith(d + os.sep) for d in ref_dirs)}
 
     # A reference opened by bare filename, after a cd into its directory, names
     # no directory at all. The filenames are known, so look for them directly —
@@ -207,8 +220,10 @@ def audit(agent: Path, period: str, transcripts: list[Path], staging: Path | Non
     # The backstop reads the same "what the run did" text, so a reference opened
     # by bare filename after a cd is caught, while one merely quoted back in a
     # tool result is not.
+    # `refs` are normcased, so the comparison text has to be too, or on Windows
+    # a lowercased name would never be found in the original-case transcript.
     names = {Path(r).name for r in refs}
-    acted_text = "\n".join(acted)
+    acted_text = os.path.normcase("\n".join(acted))
     for name in names:
         if name in acted_text and not any(name in p for p in touched_refs):
             touched_refs.add(f"(by name) {name}")

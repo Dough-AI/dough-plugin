@@ -499,9 +499,14 @@ def test_two_occurrences_of_one_row_get_different_ids(tmp_path):
 STAGE = Path(__file__).parent.parent / "skills" / "agent-gym" / "scripts" / "stage.py"
 
 
-def run_stage(agent: Path, period: str, *flags):
+def run_stage(agent: Path, period: str, *flags, home: Path | None = None):
+    """`home` moves the audit's idea of `~`, so a test can write a real tilde path
+    without depending on where pytest put its tmp_path."""
+    env = None
+    if home is not None:
+        env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
     return subprocess.run([sys.executable, str(STAGE), str(agent), period, *flags],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, env=env)
 
 
 def staged_agent(tmp_path: Path) -> Path:
@@ -586,20 +591,25 @@ def test_an_audit_with_nothing_to_read_is_not_a_pass(tmp_path):
     assert json.loads(missing.stdout)["verdict"] == "not audited"
 
 
-def test_audit_catches_a_tilde_path_in_a_shell_command(tmp_path, monkeypatch):
+def test_audit_catches_a_tilde_path_in_a_shell_command(tmp_path):
     """A Bash call hides the read inside a string, and ~ is the usual way to
-    write it. Matching only /-prefixed paths missed this entirely."""
+    write it. Matching only /-prefixed paths missed this entirely.
+
+    The audit's `~` is pointed at tmp_path, so the command below really does
+    contain a tilde. Deriving it from the real home instead silently fell back to
+    an absolute path whenever tmp_path sat outside it — which on macOS is always,
+    so this test passed with tilde support removed entirely."""
     agent = staged_agent(tmp_path)
     ref = agent / "refs" / "2026-w03" / "reference.xlsx"
-    tilde = "~" + str(ref)[len(str(Path.home())):] if str(ref).startswith(str(Path.home())) else None
+    tilde = "~/" + str(ref.relative_to(tmp_path)).replace("\\", "/")
     log = tmp_path / "run.jsonl"
-    log.write_text(json.dumps({"tool": "Bash", "command": f"cat {tilde or ref}"}))
-    result = run_stage(agent, "2026-w01", "--audit", str(log))
+    log.write_text(json.dumps({"tool": "Bash", "command": f"cat {tilde}"}))
+    result = run_stage(agent, "2026-w01", "--audit", str(log), home=tmp_path)
     assert result.returncode == 1, result.stdout
     touched = json.loads(result.stdout)["references_touched"]
     # It must be caught as a PATH, not merely by its filename: the name check
     # would report this log either way, which would hide a broken path regex.
-    assert any(p.startswith("/") for p in touched), touched
+    assert any(not p.startswith("(by name)") for p in touched), touched
 
 
 def test_audit_catches_a_reference_opened_by_bare_filename(tmp_path):
@@ -627,7 +637,7 @@ def test_audit_matches_a_path_through_a_symlinked_directory(tmp_path):
     log.write_text(json.dumps({"tool": "Bash", "command": f"cat {through_link}"}))
     result = run_stage(agent, "2026-w01", "--audit", str(log))
     touched = json.loads(result.stdout)["references_touched"]
-    assert any(p.startswith("/") for p in touched), touched
+    assert any(not p.startswith("(by name)") for p in touched), touched
 
 
 def test_the_period_being_built_keeps_its_own_inputs(tmp_path):
@@ -670,3 +680,16 @@ def test_a_reference_the_run_actually_opened_is_still_caught(tmp_path):
     result = run_stage(agent, "2026-w01", "--audit", str(log))
     assert json.loads(result.stdout)["verdict"] == "contaminated"
     assert result.returncode == 1
+
+
+def test_a_windows_path_is_recognised_as_a_path(tmp_path):
+    """On Windows a path is `C:\\Users\\…`, which a /-anchored regex never
+    matches — so the audit's path check did not run there at all, and only the
+    filename backstop caught anything. The transcript is JSON, so the separators
+    arrive doubled."""
+    sys.path.insert(0, str(STAGE.parent))
+    from stage import paths_in
+
+    text = json.dumps({"command": r"type C:\Users\runner\refs\2026-w03\reference.xlsx"})
+    found = paths_in(text)
+    assert r"C:\Users\runner\refs\2026-w03\reference.xlsx" in found, found
