@@ -62,15 +62,25 @@ def next_run_dir(agent: Path) -> Path:
 
 
 def build(agent: Path, spec: dict, period: str, rebuild: bool) -> tuple[bool, str]:
-    output = spec["outputs"][0]
-    candidate = agent / output["candidate"]["file"].format(period=period)
-    if candidate.exists() and not rebuild:
-        return True, "candidate already built"
-    command = output["build"].format(period=period)
-    result = subprocess.run(command, shell=True, cwd=agent, capture_output=True, text=True)
-    if result.returncode != 0:
-        return False, (result.stderr or result.stdout).strip().splitlines()[-1][:300]
-    return True, "built"
+    """Run the build for every output, not only the first.
+
+    One command often writes several outputs, so a command is run once however
+    many outputs name it — but an agent whose second output has its own command
+    gets it run, instead of being silently compared against a stale file.
+    """
+    ran: set[str] = set()
+    for output in spec["outputs"]:
+        candidate = agent / output["candidate"]["file"].format(period=period)
+        if candidate.exists() and not rebuild:
+            continue
+        command = output["build"].format(period=period)
+        if command in ran:
+            continue
+        result = subprocess.run(command, shell=True, cwd=agent, capture_output=True, text=True)
+        ran.add(command)
+        if result.returncode != 0:
+            return False, (result.stderr or result.stdout).strip().splitlines()[-1][:300]
+    return True, "built" if ran else "candidate already built"
 
 
 def bridge(agent: Path, period: str, out_dir: Path) -> dict:

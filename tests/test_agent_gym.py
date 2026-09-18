@@ -351,3 +351,20 @@ def test_revealing_a_holdout_records_it_as_spent(tmp_path):
     assert "2026-w03" in periods_in_latest_report(agent)
     spent = json.loads((agent / "eval" / "revealed.json").read_text())
     assert "2026-w03" in spent
+
+
+def test_every_output_is_built_not_only_the_first(tmp_path):
+    """A second output with its own build command must run, or it is compared
+    against whatever file happened to be there."""
+    agent = build_two_period_agent(tmp_path, first_differs=False)
+    spec = (agent / "eval" / "eval.yaml").read_text()
+    second = spec[spec.index("  - id: reclass"):spec.index("eval_set:")]
+    second = (second.replace("- id: reclass", "- id: second")
+                    .replace('build: "true"', 'build: "echo built-second > built-second.txt"')
+                    .replace("file: output/{period}/candidate.xlsx",
+                             "file: output/{period}/candidate.xlsx   # same artefact, own command"))
+    (agent / "eval" / "eval.yaml").write_text(spec.replace("eval_set:", second + "eval_set:"))
+    # the first output's candidate already exists, so only --rebuild reaches the
+    # second command; without the fix it is never run at all
+    run_eval(agent, "--rebuild")
+    assert (agent / "built-second.txt").exists()

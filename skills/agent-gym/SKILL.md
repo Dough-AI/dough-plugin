@@ -1,19 +1,24 @@
 ---
 name: agent-gym
-description: Score an agent against the months a person already closed by hand, and iterate until every difference is explained. Use when setting up or running an eval for a Dough agent, when someone asks whether an agent's output is right, when comparing an agent's workbook or sheet against an accountant's own, or when they mention a bridge, a holdout, a reference month, or an eval report.
+description: Score an agent against periods a person already worked by hand, and iterate until every difference is explained. Use when setting up or running an eval for a Dough agent, when someone asks whether an agent's output is right, when replacing a spreadsheet process someone runs every week, month or quarter, when comparing an agent's workbook or sheet against the one a person built, or when they mention a bridge, a holdout, a reference period, or an eval report.
 ---
 
 # Agent gym
 
-An agent that produces a month-end deliverable is only trustworthy if it
-reproduces months a person already closed. The gym scores it against those
-months and keeps the evidence.
+Someone has a process they run every period out of a spreadsheet: a workbook or
+a Google Sheet, worked the same way each time. An agent that takes it over is
+only trustworthy if it reproduces the periods that person already produced. The
+gym scores it against those periods and keeps the evidence.
+
+**Period means whatever the process runs on** — a week, a month, a quarter. The
+examples here are monthly because the first agents were, but nothing in the loop
+assumes it; declare `period: week` and the same rules apply.
 
 Four words carry the whole thing:
 
 | Term | Meaning |
 |---|---|
-| **reference** | The human's output for one period — their workbook, sheet or posted entry |
+| **reference** | The human's output for one period — the workbook or sheet they produced |
 | **candidate** | What the agent produced for that same period |
 | **bridge** | The walk from reference to candidate: every difference, with an amount and a reason |
 | **disposition** | A person's ruling on one difference, which carries across runs |
@@ -35,23 +40,66 @@ $52.6K light. When the agent and the reference disagree, either may be wrong.
 The goal is a short `eval/eval.yaml` that says where the same fact lives on each
 side. Do not write it from imagination — read both artefacts first.
 
-**1. Find the references and freeze them.** Ask where the human's past months
-live. Copy them somewhere **outside the agent folder**, one folder per period,
-with a `references.yaml` recording each file's sha256, its origin path and when
+**1. Find the references and freeze them.** Ask where the person's past runs
+live — the last several weeks, months or quarters of whatever they produce, and
+how far back they go. Copy them somewhere **outside the agent folder**, one
+folder per period, with a `references.yaml` recording each file's sha256, its
+origin path and when
 it was copied. Two reasons: a run can then never read one, and client files
 never end up inside something that might be published.
 
-**2. Check how many periods you have.** The minimum held back is
+**2. Count the periods you have.** The minimum held back is
 `min(ceil(N/2), 2)` — two holdouts once there are four or more references, one
 when there are two or three. Say what that buys: with one reference there is no
 holdout at all, and the report should state that no generalisation is claimed.
 
 **3. Read one reference — a development period, never a holdout.** Open it and
-list what it actually asserts: the figures a reviewer would check, and the
-populations behind them. Then read the candidate the agent produces. The two
-layouts will differ; that is expected, and it is why the mapping is declared.
+list what it actually asserts: the figures a reviewer would check, the
+populations behind them, and — just as important — **where each input came
+from**. Tabs pasted from an export, a CSV someone drops in, a figure typed from
+another system: write them down, they are step 4. Then read the candidate the
+agent produces. The two layouts will differ; that is expected, and it is why the
+mapping is declared.
 
-**4. Propose the components, and ask before writing them.** For each: is this
+**4. Sort out the inputs, period by period.** An eval reruns a past period, so
+every input has to be available *as it was then*. Take the list from step 3 and
+put each one in a bucket:
+
+- **In the data lake.** The best case: the agent queries it per period. See
+  step 5 — do not assume the answer, go and look.
+- **A file the person supplies each period** (a CSV export, a JSON drop, a
+  workbook from another team). Freeze one copy per period inside the agent at
+  `inputs/<period>/<name>`, exactly as it arrived, and have the build read that
+  path. Record where each file came from and when it was taken, next to them.
+  Anything downloaded fresh today is *not* what that period ran on.
+- **Typed by hand** (a rate, a roster, a threshold). That is configuration, not
+  input: put it in the agent's rules file where a reviewer can see it, and say
+  so when it changes.
+
+Two traps worth naming: a file re-exported today can contain corrections made
+after the period closed, which makes the agent look wrong when the reference was
+right; and an input with no period in its path quietly gets reused for every
+period, so every candidate is built from the same data.
+
+**5. Ask the lake before accepting a manual input.** For each input, check
+whether Dough already has it, and say what you found:
+
+- `queries.list` first — an existing saved query may already return it, and
+  reusing it keeps the numbers consistent with the rest of the org.
+- Then `integrations.tables` and `integrations.describe` for the tables behind
+  it, and `integrations.query` to test a period against the file the person
+  uses. If the totals tie, propose replacing the manual input with a saved
+  query, and show the comparison that justifies it.
+- If they do not tie, say by how much and keep the file. A partial match is a
+  finding about the lake, not a reason to switch.
+
+Where you do create one: write the SQL with `integrations.query`, parameterise
+the period, verify it against a period whose answer you already know, then
+`queries.save` it and reference it by **id** from the agent — never SQL copied
+into the agent folder. A saved query is the org's shared asset: editing it
+changes everyone's numbers, and there is a budget — see guardrail 2.
+
+**6. Propose the components, and ask before writing them.** For each: is this
 the figure that matters, and is the reference authoritative for it? A component
 is either a `figure` (one number, by cell or by label lookup) or `rows` (a
 population, keyed). Ask specifically about:
@@ -64,18 +112,9 @@ population, keyed). Ask specifically about:
   columns or that difference is invisible;
 - **tolerance** — `exact`, or `within` an amount.
 
-**5. Saved queries.** If the agent pulls from the lake, its queries belong in
-Dough as saved queries with declared parameters, referenced by id — never SQL
-copied into the agent. If they do not exist yet, write the SQL with
-`integrations.query`, verify it for one period, then `queries.save` it and put
-the id in the agent's config. Explain that a saved query is the org's shared
-asset: editing it changes everyone's numbers, and there is a budget — see
-guardrail 2.
-
-**6. Write `eval/eval.yaml`** and run the EARLIEST development period, not all
-of them. Expect to fix the
-mapping once or twice — a blank figure usually means the address is wrong, not
-that the number is missing.
+**7. Write `eval/eval.yaml`** and run the EARLIEST development period, not all
+of them. Expect to fix the mapping once or twice — a blank figure usually means
+the address is wrong, not that the number is missing.
 
 ## Three standing guardrails
 
@@ -101,16 +140,21 @@ over the data in the same file. So:
   say plainly that it needs opening in Excel to refresh — do not quote a figure
   read from a stale cache.
 
-**2. Saved queries: enough, and no more.** Push the SQL into Dough as saved
-queries with declared parameters — that is what makes it re-runnable by anyone
-and stops SQL being copied into the agent. But a query per figure is its own
-mess: every one is a shared org asset someone else can edit.
+**2. Push the data into saved queries — then stop.** Every input that can come
+from the lake should, as a saved query with declared parameters, referenced by
+id. That is what makes it re-runnable by anyone, keeps one definition of a
+number across the org, and removes a file someone has to remember to export.
+Look for the chance actively (setup step 5), rather than accepting the
+spreadsheet's inputs as given.
 
-- Aim for **one saved query per managed data sheet**, returning what that
-  sheet's aggregates need, and derive every figure from it with formulas.
-- A close of this size lands at roughly four to six. If a workbook is heading
-  past that, the extra queries are usually aggregates that belong in formulas,
-  or near-duplicates that differ by a filter a parameter could carry.
+The limit is the other half of the rule: a query per figure is its own mess, and
+every one is a shared asset someone else can edit.
+
+- Aim for **one or two saved queries per managed data sheet**, returning what
+  that sheet's aggregates need, and derive every figure from them with formulas.
+- If a sheet is heading past two, look at what the extras are. Usually they are
+  aggregates that belong in formulas, or near-duplicates differing by a filter
+  that a parameter could carry.
 - Before adding one, check `queries.list` for an existing query that already
   covers it. Reuse keeps the org's numbers consistent; a second query with a
   slightly different filter is how two teams end up with two revenue figures.
@@ -129,8 +173,11 @@ has generalised best in practice.
 ## Running
 
 ```bash
+# the loop, over the eval set
 uv run --with pyyaml --with openpyxl scripts/eval.py <agent-dir> [--reveal-holdout] [--rebuild] [--all]
-uv run --with pyyaml --with openpyxl scripts/compare.py <agent-dir> <period>   # one period
+
+# one period on its own
+uv run --with pyyaml --with openpyxl scripts/compare.py <agent-dir> <period>
 ```
 
 The loop: development periods oldest first, **stopping at the first one that
@@ -188,8 +235,11 @@ Say so plainly rather than implying coverage:
 
 - **Workbooks only.** `kind: workbook` is the only reader; a Google Sheet, a
   JSON summary or a lake table fails loudly with the kinds it knows.
-- **Script mode only.** It runs the agent's build command. It does not exercise
-  the agent's own judgment, and every report says `mode: script`.
+- **It runs the agent's build command, nothing more.** Whatever `build:` names
+  is what gets tested — today a script, so the agent's own reading of its
+  instructions is never exercised. Every report says `mode: script`, and it says
+  that regardless of what the command actually was, so do not read it as
+  evidence that a script ran.
 - **Blindness is a convention here, not a wall.** Keep references outside the
   workspace; nothing yet stops a build from reading one.
 - **No input parity.** Whether the lake could replace a hand-fetched input is
