@@ -84,9 +84,12 @@ already there.** A reviewer's first instinct is to change a row and watch the
 totals move. That only works if the totals are live: SUMIFS, COUNTIFS or a pivot
 over the data in the same file. So:
 
-- Pull the lowest grain the deliverable needs into the data sheets, and compute
-  every subtotal with formulas over whole columns, so a refresh of any row count
-  recomputes without touching a formula.
+- Pull **only the grain the pivots and formulas actually need** — the columns
+  and the level of detail the aggregates group by, and no more. Not the lowest
+  grain available: a sheet carrying detail nothing reads is slower to refresh,
+  heavier to open, and gives a reviewer more to scroll past.
+- Compute every subtotal with formulas over whole columns, so any row count a
+  refresh produces recomputes without touching a formula.
 - **Keep the aggregates the accountant already built.** If their workbook has a
   pivot or a block of COUNTIFS, reproduce that shape rather than replacing it
   with a value the agent computed. Losing it is a real regression to them even
@@ -103,8 +106,8 @@ queries with declared parameters — that is what makes it re-runnable by anyone
 and stops SQL being copied into the agent. But a query per figure is its own
 mess: every one is a shared org asset someone else can edit.
 
-- Aim for **one saved query per managed data sheet**, at the lowest grain that
-  sheet needs, and derive every figure from it with formulas.
+- Aim for **one saved query per managed data sheet**, returning what that
+  sheet's aggregates need, and derive every figure from it with formulas.
 - A close of this size lands at roughly four to six. If a workbook is heading
   past that, the extra queries are usually aggregates that belong in formulas,
   or near-duplicates that differ by a filter a parameter could carry.
