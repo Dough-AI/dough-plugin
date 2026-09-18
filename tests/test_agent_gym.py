@@ -91,6 +91,16 @@ def compare(agent: Path, out: Path, period="2026-06"):
     return result, bridge
 
 
+def refused(result, message):
+    """A refusal is a stated reason and a clean exit — not a traceback that
+    happens to be non-zero. Without this check an unrelated crash (a missing
+    dependency, say) passes every negative test in this file."""
+    output = result.stderr + result.stdout
+    assert result.returncode != 0, output
+    assert "Traceback" not in result.stderr, f"crashed rather than refused:\n{result.stderr}"
+    assert message in output, output
+
+
 def steps_of(bridge, component):
     return next(b for b in bridge["bridges"] if b["component"] == component)["steps"]
 
@@ -156,8 +166,7 @@ def test_duplicate_sheet_is_refused(tmp_path):
     wb.copy_worksheet(wb["Lines"]).title = "Lines1"
     wb.save(path)
     result, bridge = compare(agent, tmp_path / "out")
-    assert result.returncode != 0
-    assert "appears 2 times" in (result.stderr + result.stdout)
+    refused(result, "appears 2 times")
     assert bridge is None
 
 
@@ -166,8 +175,7 @@ def test_unknown_output_kind_fails_loudly(tmp_path):
     spec = (agent / "eval" / "eval.yaml").read_text().replace("kind: workbook", "kind: google_sheet")
     (agent / "eval" / "eval.yaml").write_text(spec)
     result, _ = compare(agent, tmp_path / "out")
-    assert result.returncode != 0
-    assert "cannot read" in (result.stderr + result.stdout)
+    refused(result, "cannot read")
 
 
 def test_missing_column_names_what_it_wanted(tmp_path):
@@ -177,7 +185,7 @@ def test_missing_column_names_what_it_wanted(tmp_path):
     wb["Reclass"]["D1"] = "account"            # was to_account
     wb.save(path)
     result, _ = compare(agent, tmp_path / "out")
-    assert "to_account" in (result.stderr + result.stdout)
+    refused(result, "to_account")
 
 
 def test_undisposed_file_lists_every_open_difference(tmp_path):
@@ -242,7 +250,7 @@ def test_a_bad_reason_is_refused(tmp_path):
         "dispositions:\n  - id: abc123\n    reason: fine-i-guess\n    accepted_by: a@b.com\n"
     )
     result, _ = compare(agent, tmp_path / "out")
-    assert "is not a reason" in (result.stderr + result.stdout)
+    refused(result, "is not a reason")
 
 
 def test_a_disposition_without_a_name_is_refused(tmp_path):
@@ -251,7 +259,7 @@ def test_a_disposition_without_a_name_is_refused(tmp_path):
         "dispositions:\n  - id: abc123\n    reason: judgment\n"
     )
     result, _ = compare(agent, tmp_path / "out")
-    assert "accepted_by" in (result.stderr + result.stdout)
+    refused(result, "accepted_by")
 
 
 # ── eval.py: the walk-forward loop ───────────────────────────────────────────

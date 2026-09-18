@@ -23,7 +23,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ModuleNotFoundError:                                   # pragma: no cover
+    raise SystemExit(
+        "PyYAML is missing, and the gym reads the agent's eval.yaml with it.\n"
+        "Run this through uv, which brings its own:\n"
+        "  uv run --with pyyaml --with openpyxl " + __file__
+    )
 
 GYM = Path(__file__).resolve().parent
 REVEALED = "revealed.json"          # which holdouts have been spent, and when

@@ -88,12 +88,13 @@ jobs:
         with: { python-version: "${{ matrix.python }}" }
       - name: pytest
         # The repository declares no dependency manifest, so test deps are
-        # listed here. openpyxl is required by tests/test_dough_excel.py.
+        # listed here. openpyxl is required by tests/test_dough_excel.py;
+        # pyyaml by the agent-gym scripts, which read an agent's eval.yaml.
         #
         # `-rs` prints the reason for every skip. A suite that reports only
         # "14 skipped" is how one of the bugs above hid: the live tests were
         # skipping because triage could not say CONNECTED, and a broken skip
         # looks exactly like a deliberate one in the summary line.
         run: |
-          pip install pytest openpyxl
+          pip install pytest openpyxl pyyaml
           pytest tests -q -rs
