@@ -111,8 +111,16 @@ def main() -> int:
     state = revealed_state(agent)
 
     cases = sorted(spec["eval_set"], key=lambda c: c["period"])
-    development = [c for c in cases if c.get("role") == "development"]
-    holdouts = [c for c in cases if c.get("role") == "holdout"]
+    # Every case must carry a role we know. A typo used to drop the period from
+    # the run entirely, and the run then reported pass: the eval set shrank in
+    # silence and only the header count showed it.
+    unknown = [f"{c['period']}: {c.get('role')!r}" for c in cases
+               if c.get("role") not in ("development", "holdout")]
+    if unknown:
+        sys.exit("eval.yaml: every period needs role: development or holdout. "
+                 "Unrecognised: " + ", ".join(unknown))
+    development = [c for c in cases if c["role"] == "development"]
+    holdouts = [c for c in cases if c["role"] == "holdout"]
     spent = [c for c in holdouts if c["period"] in state]
     unseen = [c for c in holdouts if c["period"] not in state]
 
@@ -121,7 +129,7 @@ def main() -> int:
     print(f"run {run} — {len(development)} development, {len(spent)} holdout regression(s), "
           f"{len(unseen)} unseen holdout(s)\n")
 
-    results, stopped = [], None
+    results, stopped, unsettled = [], None, []
     for case in development + spent:
         period = case["period"]
         role = "development" if case in development else "regression"
@@ -145,13 +153,20 @@ def main() -> int:
         # the next is opened is what makes the agent generalise: a rule written
         # against six months at once is fitted to all six, and none of them was
         # ever a test. --all overrides, for a regression sweep of settled months.
-        if role == "development" and report["verdict"] != "pass" and not args.all:
-            stopped = (f"{period} needs disposition — settle it, then run again "
-                       "to move on to the next period")
-            break
+        if role == "development" and report["verdict"] != "pass":
+            if not args.all:
+                stopped = (f"{period} needs disposition — settle it, then run again "
+                           "to move on to the next period")
+                break
+            # --all keeps going through the remaining periods, but an unsettled
+            # development period still bars the reveal: a holdout is blind once,
+            # and spending it to prove a fix nobody has made wastes it.
+            unsettled.append(period)
 
     # The reveal comes last, and only if nothing above failed.
-    if unseen and args.reveal_holdout and not stopped:
+    if unseen and args.reveal_holdout and unsettled:
+        print(f"\n  holdout not revealed: {', '.join(unsettled)} still needs disposition")
+    elif unseen and args.reveal_holdout and not stopped:
         case = unseen[0]
         period = case["period"]
         ok, note = build(agent, spec, period, args.rebuild)
@@ -159,9 +174,14 @@ def main() -> int:
             report = bridge(agent, period, run_dir)
             report["role"] = "holdout (blind)"
             results.append(report)
-            record_reveal(agent, period, run)
-            print(f"  {period}  {'holdout':<12} {report['verdict']} — revealed for the first time")
-            unseen = unseen[1:]
+            if report.get("verdict") == "error":
+                # No bridge, so no evidence: a missing reference or a bad path
+                # must not burn the one blind look this period ever gets.
+                print(f"  {period}  {'holdout':<12} error — NOT spent: {report.get('error', '')[:120]}")
+            else:
+                record_reveal(agent, period, run)
+                print(f"  {period}  {'holdout':<12} {report['verdict']} — revealed for the first time")
+                unseen = unseen[1:]
         else:
             print(f"  {period}  holdout      BUILD FAILED — {note}")
     elif unseen and not args.reveal_holdout:

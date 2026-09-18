@@ -368,3 +368,124 @@ def test_every_output_is_built_not_only_the_first(tmp_path):
     # second command; without the fix it is never run at all
     run_eval(agent, "--rebuild")
     assert (agent / "built-second.txt").exists()
+
+
+# ── the six findings from review, each with the test that was missing ────────
+
+def many_row_agent(tmp_path: Path, n: int) -> Path:
+    """n rows in the reference, none in the candidate."""
+    agent = build_agent(tmp_path,
+                        reference_rows=[[f"t{i}", "V", 10.0, "Travel"] for i in range(n)],
+                        candidate_rows=[], candidate_total=0.0, reference_total=10.0 * n)
+    return agent
+
+
+def dispose_every_listed_step(agent: Path, bridge) -> None:
+    ids = [s["id"] for b in bridge["bridges"] for s in b["steps"]]
+    (agent / "eval" / "dispositions.yaml").write_text(
+        "dispositions:\n" + "".join(
+            f"  - id: {i}\n    reason: judgment\n    accepted_by: someone@example.com\n" for i in ids))
+
+
+def test_differences_hidden_by_the_step_cap_still_fail_the_period(tmp_path):
+    """Disposing the listed steps must not settle a population that is still
+    wrong: 60 missing rows with 20 listed used to report pass."""
+    agent = many_row_agent(tmp_path, 60)
+    _, first = compare(agent, tmp_path / "out1")
+    dispose_every_listed_step(agent, first)
+    result, after = compare(agent, tmp_path / "out2")
+    rows = next(b for b in after["bridges"] if b["component"] == "lines")
+    assert rows["population"]["only_reference"] == 60
+    assert after["hidden_differences"] == rows["truncated_steps"] > 0
+    assert after["verdict"] == "needs disposition"
+    assert result.returncode != 0
+
+
+def test_two_rows_sharing_a_first_key_column_get_different_ids(tmp_path):
+    """One ruling must not settle another row. The id used to hash a note that
+    carried only the first key column."""
+    agent = build_agent(tmp_path,
+                        reference_rows=[["t1", "Acme", 100.0, "Travel"],
+                                        ["t1", "Globex", 100.0, "Travel"]],
+                        candidate_rows=[], candidate_total=0.0, reference_total=200.0)
+    _, bridge = compare(agent, tmp_path / "out")
+    ids = [s["id"] for s in steps_of(bridge, "lines")]
+    assert len(set(ids)) == 2, "two different rows collided on one id"
+
+
+def test_duplicate_rows_are_distinguished_by_occurrence(tmp_path):
+    """The occurrence index in the key had no test at all: deleting it left the
+    whole suite green."""
+    agent = build_agent(tmp_path,
+                        reference_rows=[["t1", "Acme", 100.0, "Travel"],
+                                        ["t1", "Acme", 100.0, "Travel"]],
+                        candidate_rows=[["t1", "Acme", 100.0, "Travel", "RECLASS"]],
+                        candidate_total=100.0, reference_total=200.0)
+    _, bridge = compare(agent, tmp_path / "out")
+    population = next(b for b in bridge["bridges"] if b["component"] == "lines")["population"]
+    assert population["matched"] == 1 and population["only_reference"] == 1
+
+
+def test_a_text_amount_is_refused_rather_than_ignored(tmp_path):
+    """A column formatted as Text used to compare as nothing at all, and the
+    period passed with a 999,999 difference in it."""
+    agent = build_agent(tmp_path,
+                        reference_rows=[["t1", "Acme", "100.00", "Travel"]],
+                        candidate_rows=[["t1", "Acme", 999999.0, "Travel", "RECLASS"]])
+    result, bridge = compare(agent, tmp_path / "out")
+    refused(result, "is not a number")
+    assert bridge is None
+
+
+def test_a_bug_ruling_does_not_settle_the_period(tmp_path):
+    """`bug` means the agent is wrong; the fix settles it, not the ruling."""
+    agent = build_agent(tmp_path, candidate_total=277.7)
+    _, bridge = compare(agent, tmp_path / "out1")
+    step = steps_of(bridge, "total")[0]
+    (agent / "eval" / "dispositions.yaml").write_text(
+        f"dispositions:\n  - id: {step['id']}\n    reason: bug\n"
+        "    accepted_by: someone@example.com\n")
+    result, after = compare(agent, tmp_path / "out2")
+    assert after["verdict"] == "needs disposition"
+    assert after["open_bugs"] == 1
+    assert result.returncode != 0
+
+
+def test_an_unknown_role_stops_the_run(tmp_path):
+    """A typo used to delete the period from the eval set and report pass."""
+    agent = build_two_period_agent(tmp_path)
+    spec = (agent / "eval" / "eval.yaml").read_text().replace(
+        "{period: 2026-w01, role: development}", "{period: 2026-w01, role: develpoment}")
+    (agent / "eval" / "eval.yaml").write_text(spec)
+    result = run_eval(agent)
+    assert result.returncode != 0
+    assert "develpoment" in (result.stderr + result.stdout)
+
+
+def test_all_does_not_spend_a_holdout_while_a_period_is_unsettled(tmp_path):
+    agent = build_two_period_agent(tmp_path)          # week 1 differs
+    run_eval(agent, "--all", "--reveal-holdout")
+    assert not (agent / "eval" / "revealed.json").exists()
+
+
+def test_a_holdout_that_errors_is_not_spent(tmp_path):
+    """A missing reference produces no evidence, so it must not burn the one
+    blind look that period ever gets."""
+    agent = build_two_period_agent(tmp_path, first_differs=False)
+    (agent / "refs" / "2026-w03" / "reference.xlsx").unlink()
+    result = run_eval(agent, "--reveal-holdout")
+    assert not (agent / "eval" / "revealed.json").exists()
+    assert "NOT spent" in result.stdout
+
+
+def test_two_occurrences_of_one_row_get_different_ids(tmp_path):
+    """Duplicates produce identical notes by definition, so only the occurrence
+    index in the step's `detail` can tell their rulings apart."""
+    agent = build_agent(tmp_path,
+                        reference_rows=[["t1", "Acme", 100.0, "Travel"],
+                                        ["t1", "Acme", 100.0, "Travel"]],
+                        candidate_rows=[], candidate_total=0.0, reference_total=200.0)
+    _, bridge = compare(agent, tmp_path / "out")
+    steps = steps_of(bridge, "lines")
+    assert len(steps) == 2
+    assert len({s["id"] for s in steps}) == 2, "both occurrences share one id"

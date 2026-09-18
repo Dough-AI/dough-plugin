@@ -12,7 +12,10 @@ gym scores it against those periods and keeps the evidence.
 
 **Period means whatever the process runs on** — a week, a month, a quarter. The
 examples here are monthly because the first agents were, but nothing in the loop
-assumes it; declare `period: week` and the same rules apply.
+assumes it: a period is just the label in `eval_set`, passed to the build command
+and to every path as `{period}`. Use whatever the process uses (`2026-w32`,
+`2026-08`, `2026-Q3`), and keep it sortable, because the order of the eval set is
+the order of training.
 
 Four words carry the whole thing:
 
@@ -49,8 +52,8 @@ it was copied. Two reasons: a run can then never read one, and client files
 never end up inside something that might be published.
 
 **2. Count the periods you have.** The minimum held back is
-`min(ceil(N/2), 2)` — two holdouts once there are four or more references, one
-when there are two or three. Say what that buys: with one reference there is no
+`min(ceil(N/2), 2)` — two holdouts once there are three or more references, one
+when there are two. Say what that buys: with one reference there is no
 holdout at all, and the report should state that no generalisation is claimed.
 
 **3. Read one reference — a development period, never a holdout.** Open it and
@@ -112,7 +115,23 @@ population, keyed). Ask specifically about:
   columns or that difference is invisible;
 - **tolerance** — `exact`, or `within` an amount.
 
-**7. Write `eval/eval.yaml`** and run the EARLIEST development period, not all
+**7. Expect a reference's layout to move, and say so per period.** A human
+workbook grows a row, drops a tab, gets re-cut. When one period's figure sits
+somewhere else, do not weaken the mapping for every period — add an
+`overrides:` block to that period's entry in the eval set, naming only what
+moved and why:
+
+```yaml
+  - period: 2026-01
+    role: development
+    overrides:
+      # the Summary block gained a row in February; January sits one higher
+      holding_balance: {reference: {cell: I26}}
+```
+
+An override is a record of drift, and it belongs next to the period it explains.
+
+**8. Write `eval/eval.yaml`** and run the EARLIEST development period, not all
 of them. Expect to fix the mapping once or twice — a blank figure usually means
 the address is wrong, not that the number is missing.
 
@@ -193,6 +212,13 @@ a ledger of how many remain, and says so when none do.
 Reports land in `<agent>/eval/reports/<run>/`, numbered and never overwritten:
 one `<period>.bridge.json` per period plus a `report.json` for the run.
 
+A bridge lists at most 20 differences of each kind, to stay readable when
+something has gone badly wrong. The population counts are always complete, and
+`truncated_steps` says how many were left out — a bridge with any cannot pass,
+however many of the listed ones have been ruled on. When you see one, fix the
+cause rather than working through the list: 200 unmatched rows is one problem,
+not 200.
+
 ## Reading a bridge
 
 Report the differences, not the verdict. For each one say what it is worth, on
@@ -226,7 +252,15 @@ A ruling covers **that** difference, not that line for ever. The id includes the
 amount, so if the same line later differs by a different amount it resurfaces.
 That is deliberate; do not edit ids to make it go away.
 
-A `bug` is not a disposition. Fix the agent, record what changed and why in
+If a gym upgrade changes how a step id is built, every existing ruling stops
+matching and its difference resurfaces. That is the safe direction — nothing is
+settled by accident — but do not re-rule from scratch: find the new id for the
+same difference and re-point the entry, keeping the reason, note, name and date.
+Say in the file that you did.
+
+A `bug` is not a disposition, and ruling one does not settle the period: the run
+still fails, reporting it under `open_bugs`. That is deliberate — the fix settles
+a bug, not the label. Fix the agent, record what changed and why in
 `<agent>/eval/changes.yaml`, and re-run: the next run is the evidence.
 
 ## What this does not do yet
@@ -237,9 +271,9 @@ Say so plainly rather than implying coverage:
   JSON summary or a lake table fails loudly with the kinds it knows.
 - **It runs the agent's build command, nothing more.** Whatever `build:` names
   is what gets tested — today a script, so the agent's own reading of its
-  instructions is never exercised. Every report says `mode: script`, and it says
-  that regardless of what the command actually was, so do not read it as
-  evidence that a script ran.
+  instructions is never exercised. The run's `report.json` says `mode: script`
+  whatever the command actually was, so do not read it as evidence of what ran —
+  and a single-period bridge carries no `mode` at all.
 - **Blindness is a convention here, not a wall.** Keep references outside the
   workspace; nothing yet stops a build from reading one.
 - **No input parity.** Whether the lake could replace a hand-fetched input is
