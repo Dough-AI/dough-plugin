@@ -15,7 +15,7 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
 ## What's inside
 
 - **MCP connector** to the Dough tools (`integrations`, `queries`, `mappings`,
-  `tables`, `proposals`). Points at `https://app.usedough.ai/api/mcp` unless
+  `tables`, `proposals`). Points at `https://app.usedough.com/api/mcp` unless
   `DOUGH_MCP_URL` says otherwise — set it to run the plugin against a local
   Dough or a tunnel. Nobody needs to set it for normal use.
 - **Skills:** `getting-started`, `datalake`, `pnl` (consistent income-statement
