@@ -16,6 +16,11 @@ Claude Code's `${VAR:-default}` expansion was verified against the installed CLI
 on 2026-09-15 by pointing DOUGH_MCP_URL at a local listener and confirming the
 request arrived there, and by confirming an unset variable reaches
 app.usedough.ai.
+
+Production moved to app.usedough.com on 2026-10-10 UTC (Dough-Alpha #850); the .ai
+host still answers /api/mcp as an alias, so an install still on the old default
+keeps working until it updates. Updating re-authenticates once, because Claude
+Code keys an MCP server's login by its URL.
 """
 
 import json
@@ -23,7 +28,7 @@ import pathlib
 import re
 
 MCP_JSON = pathlib.Path(__file__).resolve().parents[1] / ".mcp.json"
-PRODUCTION = "https://app.usedough.ai/api/mcp"
+PRODUCTION = "https://app.usedough.com/api/mcp"
 
 
 def _url() -> str:
