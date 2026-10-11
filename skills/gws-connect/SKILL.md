@@ -85,7 +85,7 @@ mkdir -p ~/.config/gws && chmod 700 ~/.config/gws
 chmod 600 ~/.config/gws/client_secret.json
 ```
 
-Origin defaults to `https://app.usedough.ai`; the token is the one `dough login`
+Origin defaults to `https://app.usedough.com`; the token is the one `dough login`
 saved. A **401** means `dough login` is needed; a **403** means the org lacks the
 SKU — say which, do not retry.
 
