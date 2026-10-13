@@ -14,7 +14,6 @@ install never reads the environment.
 
 import json
 import pathlib
-from urllib.parse import urlsplit
 
 MCP_JSON = pathlib.Path(__file__).resolve().parents[1] / ".mcp.json"
 PRODUCTION = "https://app.usedough.ai/api/mcp"
@@ -24,22 +23,12 @@ def _server() -> dict:
     return json.loads(MCP_JSON.read_text(encoding="utf-8"))["mcpServers"]["dough"]
 
 
-def test_url_has_no_environment_reference() -> None:
-    url = _server()["url"]
-    assert "$" not in url, f"the published url must be a literal, got {url}"
-
-
-def test_url_is_production() -> None:
+def test_url_is_the_literal_production_url() -> None:
     assert _server()["url"] == PRODUCTION
 
 
-def test_url_parses_as_an_https_url() -> None:
-    parts = urlsplit(_server()["url"])
-    assert (parts.scheme, parts.netloc, parts.path) == ("https", "app.usedough.ai", "/api/mcp")
-
-
-def test_no_server_field_reads_the_environment() -> None:
-    """Headers or any later field are stored verbatim by the Desktop app too."""
+def test_nothing_reads_the_environment() -> None:
+    """No `$` anywhere: the Desktop app stores every field verbatim."""
     assert "$" not in MCP_JSON.read_text(encoding="utf-8")
 
 
