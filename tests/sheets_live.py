@@ -159,8 +159,8 @@ def quote_tab(title: str) -> str:
 
 
 def manifest(spreadsheet_id: str) -> dict:
-    """The `Dough` tab as {marker, headers, rows[list of dict]}; rows padded to 7."""
-    grid = values(spreadsheet_id, "Dough!A1:G")
+    """The `Dough Manifest` tab as {marker, headers, rows[list of dict]}; rows padded to 7."""
+    grid = values(spreadsheet_id, f"{quote_tab('Dough Manifest')}!A1:G")
     marker = str(grid[1][0]) if len(grid) > 1 and grid[1] else ""
     headers = [str(c) for c in grid[2]] if len(grid) > 2 else []
     rows = []

@@ -72,6 +72,7 @@ def test_contract_constants_match_excel():
 
         pytest.skip("openpyxl not installed; the Excel script cannot be imported")
     assert sheets.MANIFEST_SHEET == excel.MANIFEST_SHEET
+    assert sheets.LEGACY_MANIFEST_SHEET == excel.LEGACY_MANIFEST_SHEET
     assert sheets.MANIFEST_VERSION == excel.MANIFEST_VERSION
     assert sheets.VERSION_MARKER == excel.VERSION_MARKER
     assert sheets.MANIFEST_HEADERS == excel.MANIFEST_HEADERS

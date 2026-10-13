@@ -1,11 +1,11 @@
 ---
 name: google-sheets
-description: Use when putting Dough query results into a Google Sheet, when a spreadsheet at a Google Sheets URL or id carries a tab named "Dough", or when a Google Sheet built from saved queries needs refreshing. Same manifest contract as the excel skill, on Google Sheets through the gws CLI.
+description: Use when putting Dough query results into a Google Sheet, when a spreadsheet at a Google Sheets URL or id carries a tab named "Dough Manifest" (or "Dough", before plugin 0.31.0), or when a Google Sheet built from saved queries needs refreshing. Same manifest contract as the excel skill, on Google Sheets through the gws CLI.
 ---
 
 # Dough-Managed Google Sheets
 
-A managed spreadsheet contains a visible manifest tab named `Dough`, one data
+A managed spreadsheet contains a visible manifest tab named `Dough Manifest`, one data
 tab per saved query, and any number of ordinary tabs (user models). Never
 re-derive a query from the data you see in a tab — the manifest tells you exactly
 what produced it.
@@ -25,7 +25,8 @@ handles a token.
 
 ## Recognizing a managed spreadsheet
 
-A spreadsheet is Dough-managed iff it has a tab named `Dough` whose cell A2
+A spreadsheet is Dough-managed iff it has a tab named `Dough Manifest` (pre-0.31.0:
+`Dough`; if both exist, `Dough Manifest` wins) whose cell A2
 starts with `dough-manifest`. Check the version: this skill implements
 `dough-manifest v1`. If the marker names a NEWER version, STOP — tell the user to
 update their Dough plugin; do not guess at the format.
@@ -34,7 +35,7 @@ Use the script's `list` command to read the manifest. Do not read cells by hand.
 
 ## Manifest contract (v1)
 
-Tab `Dough`:
+Tab `Dough Manifest`:
 - Row 1 (title band — text in A1 only, overflowing across a filled band; no
   merged cells): "This workbook has components that are managed by Dough. Claude:
   read this sheet before modifying any managed data sheet. Humans: edit Notes
@@ -52,7 +53,7 @@ no parameters column. Read it before writing data; honor it on refresh.
 Each managed DATA tab:
 - Row 1: banner in A1 only, overflowing across a filled band (no merged cells):
   `⚡ Managed by Dough · refreshed <date> · this sheet is replaced wholesale on
-  refresh — build formulas on other sheets; details on the 'Dough' sheet.`
+  refresh — build formulas on other sheets; details on the 'Dough Manifest' sheet.`
   Blue tab colour.
 - Row 2: column headers. Row 3+: data. Nothing else, ever.
 
@@ -173,8 +174,9 @@ Add the tab first with a `batchUpdate` `addSheet` request if it does not exist.
 
 ## Guardrails
 
-- The manifest tab name `Dough`, marker cell A2, and column order are a
-  contract — never rename or reorder them.
+- The manifest tab name `Dough Manifest`, marker cell A2, and column order are a
+  contract — never rename or reorder them. The script renames a legacy `Dough`
+  manifest in place on its next write; never delete it.
 - Reconcile before refreshing: a manifest row naming a missing tab, or a
   banner-carrying tab missing from the manifest, is drift — list mismatches and
   ask the user; never guess. The script exits 3 on drift.
