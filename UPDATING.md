@@ -146,6 +146,34 @@ is an open Anthropic bug; installing the CLI is the way around it.
 
 ---
 
+## Point a checkout at another Dough (development)
+
+The published `.mcp.json` url is a literal, `https://app.usedough.ai/api/mcp`,
+and `tests/test_mcp_url.py` fails if it contains `$`. Never reintroduce a
+`${DOUGH_MCP_URL:-…}` template: Claude Code expands it, but the Claude Desktop
+app stores an org-installed connector verbatim, sees a url that differs from
+the session's, and refuses sign-in (USE-736).
+
+To use a local Dough or a tunnel, rewrite the url in a separate clone and
+install the marketplace from it, which is what Dough-Alpha's hosted-agent boxes
+do with the run's own MCP url:
+
+```sh
+git clone --depth 1 https://github.com/Dough-AI/dough-plugin /tmp/dough-plugin
+python3 -c 'import json,sys; p=sys.argv[1]; c=json.load(open(p)); c["mcpServers"]["dough"]["url"]=sys.argv[2]; json.dump(c, open(p,"w"), indent=2)' \
+  /tmp/dough-plugin/.mcp.json http://localhost:3000/api/mcp
+claude plugin marketplace add /tmp/dough-plugin
+claude plugin install dough@dough-plugins -y
+```
+
+Do this in a clone, never in the checkout you commit from.
+
+`tests/test_mcp_server_live.py` checks that the published url is a live Dough
+MCP server: an unauthenticated `initialize` gets a 401 Bearer challenge, the
+protected-resource metadata names exactly that url, and its authorization
+server offers authorize, token and registration endpoints with PKCE S256. It
+needs the network and runs in CI.
+
 ## Emergency manual override (maintainer, last resort)
 
 If a client is stuck and cannot use the CLI, the shared store can be corrected by
