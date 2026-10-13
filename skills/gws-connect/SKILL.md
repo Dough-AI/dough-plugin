@@ -172,6 +172,11 @@ gws drive files list   --params '{"q":"'"'"'<folderId>'"'"' in parents"}'
 gws drive files delete --params '{"fileId":"<checkFileId>"}'
 ```
 
+**Run these from a scratch folder** (`cd "$(mktemp -d)"`; on Windows
+`cd (New-Item -ItemType Directory (Join-Path $env:TEMP (New-Guid))).FullName`), never from the
+user's project or an agent's folder: Drive answers the delete with an empty response, and `gws`
+saves any response that isn't JSON as `download.html` in its working folder.
+
 **Judge by exit code, never by parsing stdout** — every `gws` call prints
 `Using keyring backend: …` on stderr before any JSON. If you must read a value,
 strip to the first `{`.
