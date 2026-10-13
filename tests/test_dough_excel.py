@@ -42,12 +42,12 @@ def test_create_into_empty(tmp_path):
     result = run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
     assert result.returncode == 0, result.stderr
     wb = load_workbook(book)
-    assert wb.sheetnames[0] == "Dough"
-    assert wb["Dough"]["A2"].value == "dough-manifest v1"
-    assert wb["Dough"]["A4"].value == "Revenue Detail"
-    assert wb["Dough"]["B4"].value == "q-1"
-    assert wb["Dough"]["E4"].value == "2026-07-25T14:03:00Z"
-    assert wb["Dough"]["F4"].value == 2  # row_count is its own numeric column
+    assert wb.sheetnames[0] == "Dough Manifest"
+    assert wb["Dough Manifest"]["A2"].value == "dough-manifest v1"
+    assert wb["Dough Manifest"]["A4"].value == "Revenue Detail"
+    assert wb["Dough Manifest"]["B4"].value == "q-1"
+    assert wb["Dough Manifest"]["E4"].value == "2026-07-25T14:03:00Z"
+    assert wb["Dough Manifest"]["F4"].value == 2  # row_count is its own numeric column
     ws = wb["Revenue Detail"]
     assert "Managed by Dough" in ws["A1"].value
     assert ws["A2"].value == "month"
@@ -65,7 +65,7 @@ def test_create_into_existing_preserves_other_sheets(tmp_path):
     wb = load_workbook(book)
     assert "Model" in wb.sheetnames
     assert wb["Model"]["A1"].value.startswith("=SUM")
-    assert wb.sheetnames[0] == "Dough"
+    assert wb.sheetnames[0] == "Dough Manifest"
 
 
 def test_refresh_shrunk_rows_and_mangled_banner_restored(tmp_path):
@@ -85,8 +85,8 @@ def test_refresh_shrunk_rows_and_mangled_banner_restored(tmp_path):
     assert "2026-08-01" in ws["A1"].value        # with the new date
     assert ws["A3"].value == "2026-03"
     assert ws["A4"].value is None                # old rows gone
-    assert wb["Dough"]["E4"].value == "2026-08-01T09:00:00Z"  # timestamp updated in place
-    assert wb["Dough"]["F4"].value == 1                       # row_count updated in place
+    assert wb["Dough Manifest"]["E4"].value == "2026-08-01T09:00:00Z"  # timestamp updated in place
+    assert wb["Dough Manifest"]["F4"].value == 1                       # row_count updated in place
 
 
 def test_refresh_unknown_sheet_is_drift(tmp_path):
@@ -102,7 +102,7 @@ def test_newer_manifest_version_stops(tmp_path):
     book = tmp_path / "book.xlsx"
     run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
     wb = load_workbook(book)
-    wb["Dough"]["A2"] = "dough-manifest v2"
+    wb["Dough Manifest"]["A2"] = "dough-manifest v2"
     wb.save(book)
     result = run("list", str(book))
     assert result.returncode == 3
@@ -113,7 +113,7 @@ def test_older_manifest_version_says_migrate_not_update(tmp_path):
     book = tmp_path / "book.xlsx"
     run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
     wb = load_workbook(book)
-    wb["Dough"]["A2"] = "dough-manifest v0"
+    wb["Dough Manifest"]["A2"] = "dough-manifest v0"
     wb.save(book)
     result = run("list", str(book))
     assert result.returncode == 3
@@ -208,3 +208,105 @@ def test_missing_payload_fields_rejected(tmp_path):
     result = run("create", str(book), "--payload", payload(tmp_path, [bad]))
     assert result.returncode == 2
     assert "queryId" in result.stderr
+
+
+def legacy_book(tmp_path):
+    """A workbook as plugins before 0.31.0 left it: the manifest tab is named
+    `Dough`, sits between a user sheet and the data sheet, and has a note the
+    user typed in a cell the script never writes."""
+    book = tmp_path / "book.xlsx"
+    run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    wb = load_workbook(book)
+    wb["Dough Manifest"].title = "Dough"
+    wb.create_sheet("Model", 0)
+    wb["Dough"]["H4"] = "user note"
+    wb.save(book)
+    assert load_workbook(book).sheetnames == ["Model", "Dough", "Revenue Detail"]
+    return book
+
+
+def test_banner_names_the_manifest_sheet(tmp_path):
+    book = tmp_path / "book.xlsx"
+    run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    banner = load_workbook(book)["Revenue Detail"]["A1"].value
+    assert banner.endswith("details on the 'Dough Manifest' sheet.")
+
+
+def test_list_reads_a_legacy_manifest_without_renaming(tmp_path):
+    book = legacy_book(tmp_path)
+    result = run("list", str(book))
+    assert result.returncode == 0, result.stderr
+    assert [e["sheet"] for e in json.loads(result.stdout)["entries"]] == ["Revenue Detail"]
+    assert load_workbook(book).sheetnames == ["Model", "Dough", "Revenue Detail"]  # list never writes
+
+
+def test_refresh_renames_a_legacy_manifest_in_place(tmp_path):
+    book = legacy_book(tmp_path)
+    fresh = entry(tmp_path)
+    fresh["refreshedAt"] = "2026-08-01T09:00:00Z"
+    result = run("refresh", str(book), "--all", "--payload", payload(tmp_path, [fresh]))
+    assert result.returncode == 0, result.stderr
+    assert "renamed" in result.stderr
+    wb = load_workbook(book)
+    # Renamed, not duplicated: same position, rows, styling and the user's note.
+    assert wb.sheetnames == ["Model", "Dough Manifest", "Revenue Detail"]
+    ws = wb["Dough Manifest"]
+    assert ws["A2"].value == "dough-manifest v1"
+    assert ws["A4"].value == "Revenue Detail"
+    assert ws["E4"].value == "2026-08-01T09:00:00Z"
+    assert ws["H4"].value == "user note"
+    assert ws["A3"].font.bold
+    assert ws.freeze_panes == "A4"
+    # Converged: the next run reads the new name and has nothing to rename.
+    again = run("refresh", str(book), "--all", "--payload", payload(tmp_path, [fresh]))
+    assert again.returncode == 0, again.stderr
+    assert "renamed" not in again.stderr
+
+
+def test_create_into_a_legacy_workbook_renames_not_duplicates(tmp_path):
+    book = legacy_book(tmp_path)
+    result = run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path, sheet="Costs")]))
+    assert result.returncode == 0, result.stderr
+    wb = load_workbook(book)
+    assert "Dough" not in wb.sheetnames
+    assert wb.sheetnames.count("Dough Manifest") == 1
+    assert [wb["Dough Manifest"].cell(row=r, column=1).value for r in (4, 5)] == ["Revenue Detail", "Costs"]
+
+
+def test_both_names_present_reads_the_new_one(tmp_path):
+    book = tmp_path / "book.xlsx"
+    run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    wb = load_workbook(book)
+    wb.create_sheet("Dough")["A2"] = "not a manifest at all"
+    wb.save(book)
+    result = run("list", str(book))
+    assert result.returncode == 0, result.stderr
+    assert "both" in result.stderr
+    assert json.loads(result.stdout)["entries"][0]["sheet"] == "Revenue Detail"
+
+
+def test_a_non_manifest_dough_sheet_is_not_renamed(tmp_path):
+    book = tmp_path / "book.xlsx"
+    wb = Workbook()
+    wb.active.title = "Dough"
+    wb.active["A1"] = "the user's own sheet"
+    wb.save(book)
+    result = run("create", str(book), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    assert result.returncode == 3
+    assert "not a dough-manifest marker" in result.stderr
+    assert load_workbook(book).sheetnames == ["Dough"]
+
+
+def test_missing_manifest_error_names_the_new_tab(tmp_path):
+    book = tmp_path / "book.xlsx"
+    Workbook().save(book)
+    result = run("list", str(book))
+    assert result.returncode == 3
+    assert "'Dough Manifest'" in result.stderr
+
+
+def test_manifest_names_are_reserved_for_data_sheets(tmp_path):
+    for name in ("Dough Manifest", "Dough"):
+        result = run("create", str(tmp_path / "book.xlsx"), "--payload", payload(tmp_path, [entry(tmp_path, sheet=name)]))
+        assert result.returncode == 2
+        assert "reserved" in result.stderr

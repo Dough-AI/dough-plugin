@@ -47,7 +47,7 @@ connected / what can I do here?"
    And when results should land in a spreadsheet the team keeps: the
    **`excel`** skill for a workbook on disk, the **`google-sheets`** skill for
    a Google Sheet (it needs `gws-connect` once per machine). Both keep a
-   visible `Dough` manifest so the sheets can be refreshed later without
+   visible `Dough Manifest` tab so the sheets can be refreshed later without
    re-deriving anything.
 
 For exact tool inputs, call `tools.describe`. For behaviors and gotchas, read

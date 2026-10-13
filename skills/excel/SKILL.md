@@ -1,25 +1,26 @@
 ---
 name: excel
-description: Recognize, create, and refresh Excel workbooks whose data sheets are managed by Dough — a visible "Dough" manifest sheet maps each data sheet to a saved query. Use whenever a workbook contains a sheet named "Dough", or when putting Dough query results into Excel.
+description: Recognize, create, and refresh Excel workbooks whose data sheets are managed by Dough — a visible "Dough Manifest" sheet maps each data sheet to a saved query. Use whenever a workbook contains a sheet named "Dough Manifest" (or "Dough" in a workbook made before plugin 0.31.0), or when putting Dough query results into Excel.
 ---
 
 # Dough-Managed Excel Workbooks
 
-A managed workbook contains a visible manifest sheet named `Dough`, one data sheet
+A managed workbook contains a visible manifest sheet named `Dough Manifest`, one data sheet
 per saved query, and any number of ordinary sheets (user models). Never re-derive a
 query from the data you see in a sheet — the manifest tells you exactly what
 produced it.
 
 ## Recognizing a managed workbook
 
-A workbook is Dough-managed iff it has a sheet named `Dough` whose cell A2 starts
-with `dough-manifest`. Check the version: this skill implements `dough-manifest v1`.
+A workbook is Dough-managed iff it has a sheet named `Dough Manifest` — or, in a
+workbook made before plugin 0.31.0, `Dough` — whose cell A2 starts with
+`dough-manifest`. If both exist, `Dough Manifest` is the manifest. Check the version: this skill implements `dough-manifest v1`.
 If the marker names a NEWER version, STOP — tell the user to update their Dough
 plugin; do not guess at the format.
 
 ## Manifest contract (v1)
 
-Sheet `Dough`:
+Sheet `Dough Manifest`:
 - Row 1 (title band — text in A1 only, overflowing across a filled band; no
   merged cells): "This workbook has components that are managed by Dough. Claude:
   read this sheet before modifying any managed data sheet. Humans: edit Notes
@@ -38,7 +39,7 @@ before writing data; honor it when formatting.
 Each managed DATA sheet:
 - Row 1: banner in A1 only, overflowing across a filled band (no merged cells):
   `⚡ Managed by Dough · refreshed <date> · this sheet is replaced wholesale on
-  refresh — build formulas on other sheets; details on the 'Dough' sheet.`
+  refresh — build formulas on other sheets; details on the 'Dough Manifest' sheet.`
   Colored sheet tab.
 - Row 2: column headers. Row 3+: data. Nothing else, ever.
 
@@ -66,7 +67,7 @@ Never touch anything outside the data sheet and its manifest row.
 1. Develop and verify the SQL interactively (`integrations.query`).
 2. Save it: `queries.save` → returns the id. (Explicit column list, never
    `SELECT *` — see grain selection below.)
-3. Write the data sheet + manifest row (create the `Dough` sheet first if absent).
+3. Write the data sheet + manifest row (create the `Dough Manifest` sheet first if absent).
    Ask the user what belongs in `refresh_notes` if formatting intent isn't clear.
 
 ## Which path to use
@@ -123,8 +124,12 @@ approximate it with the add-in's formatting tools.
 
 ## Guardrails
 
-- The manifest sheet name `Dough`, marker cell A2, and column order are a
-  contract — never rename or reorder them.
+- The manifest sheet name `Dough Manifest`, marker cell A2, and column order are a
+  contract — never rename or reorder them. The one exception: a workbook whose
+  manifest is still named `Dough` (made before plugin 0.31.0) has that sheet
+  renamed to `Dough Manifest` in place on its next create or refresh — same
+  position, formatting and rows; never delete it or add a second manifest. The
+  script does this; on the add-in path, rename the sheet yourself.
 - Reconcile before refreshing: a manifest row naming a missing sheet, or a
   banner-carrying sheet missing from the manifest, is drift — list mismatches and
   ask the user; never guess.
