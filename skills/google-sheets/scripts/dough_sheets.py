@@ -127,6 +127,20 @@ def find_gws() -> str:
     raise AssertionError  # unreachable; keeps type checkers calm
 
 
+def run_gws(argv: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
+    """Run gws in `cwd`, or in a throwaway folder when there is none. gws saves a
+    response that isn't JSON as download.<ext> in its working folder, and Drive
+    answers a delete with an empty one, so run from the caller's folder it would
+    leave a download.html there (in an agent, that is the agent's own folder)."""
+    if cwd is not None:
+        return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", check=False, cwd=cwd)
+    scratch = tempfile.mkdtemp(prefix="dough-gws-")
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", check=False, cwd=scratch)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 class Gws:
     def __init__(self) -> None:
         self.binary = find_gws()
@@ -134,7 +148,8 @@ class Gws:
     def call(self, *args: str, body: dict | None = None, params: dict | None = None,
              upload: str | None = None, cwd: str | None = None) -> dict:
         """One gws invocation. `upload` is a path RELATIVE to `cwd`: gws refuses
-        to upload a file from outside its working directory."""
+        to upload a file from outside its working directory. With no `cwd`, gws
+        runs in a throwaway folder (see run_gws)."""
         argv = [self.binary, *args]
         if params is not None:
             argv += ["--params", json.dumps(params, separators=(",", ":"))]
@@ -147,7 +162,7 @@ class Gws:
             argv += ["--upload", upload]
         for delay in (*RETRY_DELAYS, None):
             try:
-                proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", check=False, cwd=cwd)
+                proc = run_gws(argv, cwd)
             except OSError as error:
                 fail(4, f"cannot run gws: {error}")
             if proc.returncode == 0:
@@ -383,11 +398,12 @@ class Staging:
     def close(self) -> None:
         if not self.sid:
             return
-        proc = subprocess.run(
-            [self.gws.binary, "drive", "files", "delete", "--params", json.dumps({"fileId": self.sid})],
-            capture_output=True, text=True, check=False,
-        )
-        if proc.returncode != 0:
+        # Not Gws.call: a failed delete is a note, never a failed run.
+        try:
+            code = run_gws([self.gws.binary, "drive", "files", "delete", "--params", json.dumps({"fileId": self.sid})]).returncode
+        except OSError:
+            code = -1
+        if code != 0:
             print(f"note: could not delete the staging spreadsheet {self.sid}; delete it from Drive by hand", file=sys.stderr)
         self.sid = None
 
