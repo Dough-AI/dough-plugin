@@ -162,6 +162,7 @@ do with the run's own MCP url:
 git clone --depth 1 https://github.com/Dough-AI/dough-plugin /tmp/dough-plugin
 python3 -c 'import json,sys; p=sys.argv[1]; c=json.load(open(p)); c["mcpServers"]["dough"]["url"]=sys.argv[2]; json.dump(c, open(p,"w"), indent=2)' \
   /tmp/dough-plugin/.mcp.json http://localhost:3000/api/mcp
+claude plugin marketplace remove dough-plugins 2>/dev/null  # an existing GitHub install has the same name
 claude plugin marketplace add /tmp/dough-plugin
 claude plugin install dough@dough-plugins -y
 ```
