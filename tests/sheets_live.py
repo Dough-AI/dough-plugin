@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -52,13 +53,20 @@ requires_gws = pytest.mark.skipif(
 )
 
 
+def run_in_scratch(argv: list[str]) -> subprocess.CompletedProcess:
+    """gws saves a response that isn't JSON (a delete's empty one) as download.html
+    in its working folder; keep that out of the repo, as dough_sheets.run_gws does."""
+    with tempfile.TemporaryDirectory() as scratch:
+        return subprocess.run(argv, capture_output=True, text=True, check=False, cwd=scratch)
+
+
 def gws(*args: str) -> dict:
     """Run one gws command and return its JSON body.
 
     Judged by exit code. stdout is parsed from the first brace because every
     invocation prints `Using keyring backend: …` before any JSON.
     """
-    proc = subprocess.run([gws_binary(), *args], capture_output=True, text=True, check=False)
+    proc = run_in_scratch([gws_binary(), *args])
     if proc.returncode != 0:
         raise RuntimeError(f"gws {' '.join(args[:4])} … exited {proc.returncode}: {proc.stderr.strip()[-500:]}")
     body = proc.stdout[proc.stdout.find("{"):] if "{" in proc.stdout else "{}"
@@ -103,7 +111,7 @@ def find_spreadsheet(title: str, folder: str) -> str | None:
 
 
 def delete_file(file_id: str) -> None:
-    subprocess.run([gws_binary(), "drive", "files", "delete", "--params", json.dumps({"fileId": file_id})], capture_output=True, check=False)
+    run_in_scratch([gws_binary(), "drive", "files", "delete", "--params", json.dumps({"fileId": file_id})])
 
 
 def keep_sheets() -> bool:
