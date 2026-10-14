@@ -57,7 +57,10 @@ from xml.sax.saxutils import escape
 # and a test pins them equal: the manifest is one contract, whichever host it
 # lives in.
 # ---------------------------------------------------------------------------
-MANIFEST_SHEET = "Dough"
+MANIFEST_SHEET = "Dough Manifest"
+# What the manifest tab was called before plugin 0.31.0. Still read; renamed to
+# MANIFEST_SHEET in place on the next create/refresh, never deleted.
+LEGACY_MANIFEST_SHEET = "Dough"
 MANIFEST_VERSION = 1
 VERSION_MARKER = f"dough-manifest v{MANIFEST_VERSION}"
 MANIFEST_HEADERS = ["sheet", "query_id", "query_name", "sql_snapshot", "last_refreshed", "row_count", "refresh_notes"]
@@ -67,7 +70,7 @@ TITLE_TEXT = (
 )
 BANNER_TEMPLATE = (
     "⚡ Managed by Dough · refreshed {date} · this sheet is replaced wholesale on refresh — "
-    "build formulas on other sheets; details on the 'Dough' sheet."
+    "build formulas on other sheets; details on the 'Dough Manifest' sheet."
 )
 DARK_FILL = "111827"
 HEADER_FILL = "E5E7EB"
@@ -90,7 +93,7 @@ NUMERIC_PATTERN = re.compile(r"-?(0|[1-9]\d{0,14})(\.\d+)?")
 # once a single argument passes ~910 characters. Bodies here are formatting
 # and structure requests; cell contents go through the staging upload instead.
 ARG_BUDGET = 800
-MANIFEST_ROWS = 100  # initial grid height of the Dough tab; grown on demand
+MANIFEST_ROWS = 100  # initial grid height of the manifest tab; grown on demand
 RETRY_DELAYS = (1, 2, 4, 8, 16)
 SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet"
 URL_PATTERN = re.compile(r"docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]+)")
@@ -430,7 +433,7 @@ def band_requests(sheet_id: int, ncols: int) -> list[dict]:
 
 
 def manifest_tab_requests(sheet_id: int) -> list[dict]:
-    """Formatting for a freshly added Dough tab (values are written separately)."""
+    """Formatting for a freshly added manifest tab (values are written separately)."""
     requests = band_requests(sheet_id, len(MANIFEST_HEADERS))
     requests += [
         {"updateDimensionProperties": {
@@ -506,18 +509,32 @@ def copy_paste_request(source_id: int, nrows: int, ncols: int, target_id: int, r
 # ---------------------------------------------------------------------------
 # Manifest
 # ---------------------------------------------------------------------------
+def manifest_tab_name(tabs) -> str | None:
+    """The manifest tab's title in this spreadsheet: the current name, else the
+    legacy one, else None. When both exist the current one wins."""
+    if MANIFEST_SHEET in tabs:
+        if LEGACY_MANIFEST_SHEET in tabs:
+            print(f"note: both '{MANIFEST_SHEET}' and '{LEGACY_MANIFEST_SHEET}' tabs exist; "
+                  f"reading '{MANIFEST_SHEET}'", file=sys.stderr)
+        return MANIFEST_SHEET
+    if LEGACY_MANIFEST_SHEET in tabs:
+        return LEGACY_MANIFEST_SHEET
+    return None
+
+
 def read_manifest(book: Spreadsheet) -> list[dict]:
     """Manifest rows (with their spreadsheet row numbers), or fail(3)."""
-    if MANIFEST_SHEET not in book.tabs:
+    name = manifest_tab_name(book.tabs)
+    if name is None:
         fail(3, f"no '{MANIFEST_SHEET}' sheet — not a Dough-managed spreadsheet")
-    grid = book.read(f"{MANIFEST_SHEET}!A1:{column_letter(len(MANIFEST_HEADERS))}")
+    grid = book.read(f"{quote_tab(name)}!A1:{column_letter(len(MANIFEST_HEADERS))}")
 
     def cell(r: int, c: int) -> str:
         return str(grid[r][c]) if r < len(grid) and c < len(grid[r]) and grid[r][c] is not None else ""
 
     marker = cell(1, 0).strip()
     if not marker.startswith("dough-manifest"):
-        fail(3, f"'{MANIFEST_SHEET}'!A2 is not a dough-manifest marker: {marker!r}")
+        fail(3, f"'{name}'!A2 is not a dough-manifest marker: {marker!r}")
     match = re.fullmatch(r"dough-manifest v(\d+)", marker)
     if not match:
         fail(3, f"unrecognized manifest marker {marker!r}; expected {VERSION_MARKER!r}")
@@ -539,8 +556,23 @@ def read_manifest(book: Spreadsheet) -> list[dict]:
     return rows
 
 
+def adopt_legacy_manifest(book: Spreadsheet) -> None:
+    """Rename a legacy-named manifest tab to MANIFEST_SHEET in place. Call only
+    after read_manifest has validated it. Same sheetId, so its position,
+    formatting, rows and every reference to it survive; old spreadsheets
+    converge on the new name on their next write instead of growing a second
+    manifest."""
+    if MANIFEST_SHEET in book.tabs or LEGACY_MANIFEST_SHEET not in book.tabs:
+        return
+    sheet_id = book.tabs[LEGACY_MANIFEST_SHEET]["sheetId"]
+    book.batch([{"updateSheetProperties": {
+        "properties": {"sheetId": sheet_id, "title": MANIFEST_SHEET}, "fields": "title"}}])
+    book.reload()
+    print(f"note: renamed the '{LEGACY_MANIFEST_SHEET}' tab to '{MANIFEST_SHEET}'", file=sys.stderr)
+
+
 def ensure_manifest_tab(book: Spreadsheet, drop_default: bool = False) -> None:
-    if MANIFEST_SHEET in book.tabs:
+    if MANIFEST_SHEET in book.tabs or LEGACY_MANIFEST_SHEET in book.tabs:
         return
     reply = book.batch([{"addSheet": {"properties": {
         "title": MANIFEST_SHEET, "index": 0,
@@ -675,6 +707,8 @@ def load_payload(path: str) -> list:
         missing = required - set(entry)
         if missing:
             fail(2, f"payload entry for {entry.get('sheet', '?')!r} missing {sorted(missing)}")
+        if entry["sheet"] in (MANIFEST_SHEET, LEGACY_MANIFEST_SHEET):
+            fail(2, f"{entry['sheet']!r} is reserved for the manifest — name the data tab something else")
     if len({e["sheet"] for e in entries}) != len(entries):
         fail(2, "payload names the same sheet twice")
     return entries
@@ -707,6 +741,7 @@ def cmd_create(args) -> None:
     book = Spreadsheet(gws, sid)
     ensure_manifest_tab(book, drop_default=fresh)
     manifest_rows = read_manifest(book)
+    adopt_legacy_manifest(book)
     summaries = write_all(book, entries, manifest_rows)
     if fresh:
         print(url_of(sid))
@@ -717,6 +752,7 @@ def cmd_refresh(args) -> None:
     entries = load_payload(args.payload)
     book = Spreadsheet(Gws(), spreadsheet_id(args.sheet))
     manifest_rows = read_manifest(book)
+    adopt_legacy_manifest(book)
     known = {str(row["sheet"]) for row in manifest_rows}
     wanted = {e["sheet"] for e in entries} if args.all or not args.sheets else set(args.sheets.split(","))
     unknown = wanted - known

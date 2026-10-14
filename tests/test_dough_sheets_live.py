@@ -33,6 +33,7 @@ from sheets_live import (
     spreadsheet_id_from,
     tabs,
     ensure_test_folder,
+    gws,
     url_of,
     values,
     write_values,
@@ -102,7 +103,7 @@ def test_create_into_existing_spreadsheet(tmp_path, sheet):
     result = run("create", url_of(sheet), "--payload", payload(tmp_path, [entry(tmp_path)]))
     assert result.returncode == 0, result.stderr
     titles = [t["title"] for t in tabs(sheet)]
-    assert titles[0] == "Dough"
+    assert titles[0] == "Dough Manifest"
     assert "Revenue Detail" in titles
     assert "Sheet1" in titles, "the tab the spreadsheet came with must survive"
     man = manifest(sheet)
@@ -128,7 +129,7 @@ def test_create_new_spreadsheet_prints_its_url(tmp_path, folder):
     spreadsheet = spreadsheet_id_from(result.stdout.splitlines()[0])
     assert spreadsheet, f"first stdout line should be the URL: {result.stdout!r}"
     try:
-        assert [t["title"] for t in tabs(spreadsheet)] == ["Dough", "Revenue Detail"], "no stray default tab"
+        assert [t["title"] for t in tabs(spreadsheet)] == ["Dough Manifest", "Revenue Detail"], "no stray default tab"
         assert manifest(spreadsheet)["rows"][0]["sheet"] == "Revenue Detail"
     finally:
         if not keep_sheets():
@@ -138,7 +139,7 @@ def test_create_new_spreadsheet_prints_its_url(tmp_path, folder):
 def test_manifest_and_data_tab_formatting(tmp_path, sheet):
     """The parts of the contract a reader sees before reading a single value."""
     run("create", url_of(sheet), "--payload", payload(tmp_path, [entry(tmp_path)]))
-    dough = tab(sheet, "Dough")
+    dough = tab(sheet, "Dough Manifest")
     assert dough["gridProperties"]["frozenRowCount"] == 3
     assert dough["gridProperties"]["columnCount"] == 7
     detail = tab(sheet, "Revenue Detail")
@@ -222,7 +223,7 @@ def test_bare_id_and_url_both_work(tmp_path, sheet):
 
 def test_newer_manifest_version_stops(tmp_path, sheet):
     run("create", url_of(sheet), "--payload", payload(tmp_path, [entry(tmp_path)]))
-    write_values(sheet, "Dough!A2", [["dough-manifest v2"]], input_option="RAW")
+    write_values(sheet, "'Dough Manifest'!A2", [["dough-manifest v2"]], input_option="RAW")
     result = run("list", url_of(sheet))
     assert result.returncode == 3
     assert "update the Dough plugin" in result.stderr
@@ -230,7 +231,7 @@ def test_newer_manifest_version_stops(tmp_path, sheet):
 
 def test_older_manifest_version_says_migrate_not_update(tmp_path, sheet):
     run("create", url_of(sheet), "--payload", payload(tmp_path, [entry(tmp_path)]))
-    write_values(sheet, "Dough!A2", [["dough-manifest v0"]], input_option="RAW")
+    write_values(sheet, "'Dough Manifest'!A2", [["dough-manifest v0"]], input_option="RAW")
     result = run("list", url_of(sheet))
     assert result.returncode == 3
     assert "predates" in result.stderr
@@ -267,3 +268,26 @@ def test_gws_missing_is_a_clear_failure(tmp_path, sheet, monkeypatch):
     result = run("list", url_of(sheet))
     assert result.returncode == 4
     assert "gws-connect" in result.stderr
+
+
+def test_refresh_renames_a_legacy_manifest_tab_in_place(tmp_path, sheet):
+    """A spreadsheet made before plugin 0.31.0 has its manifest tab named
+    `Dough`. The next refresh renames it — same sheetId, so formatting, rows and
+    any reference to it survive — rather than adding a second manifest."""
+    run("create", url_of(sheet), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    before = tab(sheet, "Dough Manifest")
+    gws("sheets", "spreadsheets", "batchUpdate", "--params", json.dumps({"spreadsheetId": sheet}),
+        "--json", json.dumps({"requests": [{"updateSheetProperties": {
+            "properties": {"sheetId": before["sheetId"], "title": "Dough"}, "fields": "title"}}]}))
+    assert run("list", url_of(sheet)).returncode == 0, "a legacy-named manifest must still read"
+    assert tab(sheet, "Dough") is not None, "list must not rename"
+
+    result = run("refresh", url_of(sheet), "--all", "--payload",
+                 payload(tmp_path, [entry(tmp_path, refreshedAt="2026-08-01T09:00:00Z")]))
+    assert result.returncode == 0, result.stderr
+    titles = [t["title"] for t in tabs(sheet)]
+    assert "Dough" not in titles and titles.count("Dough Manifest") == 1
+    after = tab(sheet, "Dough Manifest")
+    assert after["sheetId"] == before["sheetId"]
+    assert after.get("index", 0) == before.get("index", 0)
+    assert manifest(sheet)["rows"][0]["last_refreshed"] == "2026-08-01T09:00:00Z"

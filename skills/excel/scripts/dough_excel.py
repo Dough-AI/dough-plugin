@@ -25,7 +25,10 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-MANIFEST_SHEET = "Dough"
+MANIFEST_SHEET = "Dough Manifest"
+# What the manifest tab was called before plugin 0.31.0. Still read; renamed to
+# MANIFEST_SHEET in place on the next create/refresh, never deleted.
+LEGACY_MANIFEST_SHEET = "Dough"
 MANIFEST_VERSION = 1
 VERSION_MARKER = f"dough-manifest v{MANIFEST_VERSION}"
 MANIFEST_HEADERS = ["sheet", "query_id", "query_name", "sql_snapshot", "last_refreshed", "row_count", "refresh_notes"]
@@ -35,7 +38,7 @@ TITLE_TEXT = (
 )
 BANNER_TEMPLATE = (
     "⚡ Managed by Dough · refreshed {date} · this sheet is replaced wholesale on refresh — "
-    "build formulas on other sheets; details on the 'Dough' sheet."
+    "build formulas on other sheets; details on the 'Dough Manifest' sheet."
 )
 DARK_FILL = PatternFill("solid", fgColor="111827")
 HEADER_FILL = PatternFill("solid", fgColor="E5E7EB")
@@ -60,14 +63,28 @@ def fail(code: int, message: str) -> None:
     sys.exit(code)
 
 
+def manifest_sheet_name(sheetnames):
+    """The manifest tab's name in this workbook: the current name, else the
+    legacy one, else None. When both exist the current one wins."""
+    if MANIFEST_SHEET in sheetnames:
+        if LEGACY_MANIFEST_SHEET in sheetnames:
+            print(f"note: both '{MANIFEST_SHEET}' and '{LEGACY_MANIFEST_SHEET}' sheets exist; "
+                  f"reading '{MANIFEST_SHEET}'", file=sys.stderr)
+        return MANIFEST_SHEET
+    if LEGACY_MANIFEST_SHEET in sheetnames:
+        return LEGACY_MANIFEST_SHEET
+    return None
+
+
 def read_manifest(wb):
     """Return (manifest_ws, rows) or fail(3) on drift/version mismatch."""
-    if MANIFEST_SHEET not in wb.sheetnames:
+    name = manifest_sheet_name(wb.sheetnames)
+    if name is None:
         fail(3, f"no '{MANIFEST_SHEET}' sheet — not a Dough-managed workbook")
-    ws = wb[MANIFEST_SHEET]
+    ws = wb[name]
     marker = str(ws["A2"].value or "").strip()
     if not marker.startswith("dough-manifest"):
-        fail(3, f"'{MANIFEST_SHEET}'!A2 is not a dough-manifest marker: {marker!r}")
+        fail(3, f"'{name}'!A2 is not a dough-manifest marker: {marker!r}")
     match = re.fullmatch(r"dough-manifest v(\d+)", marker)
     if not match:
         fail(3, f"unrecognized manifest marker {marker!r}; expected {VERSION_MARKER!r}")
@@ -86,6 +103,15 @@ def read_manifest(wb):
             continue
         rows.append({"row": r, **dict(zip(MANIFEST_HEADERS, ["" if v is None else str(v) for v in values]))})
     return ws, rows
+
+
+def adopt_legacy_manifest(ws) -> None:
+    """Rename a validated legacy-named manifest to MANIFEST_SHEET in place —
+    same position, styling and rows — so old workbooks converge on the new name
+    on their next write instead of growing a second manifest."""
+    if ws.title == LEGACY_MANIFEST_SHEET:
+        ws.title = MANIFEST_SHEET
+        print(f"note: renamed the '{LEGACY_MANIFEST_SHEET}' sheet to '{MANIFEST_SHEET}'", file=sys.stderr)
 
 
 def style_band(ws, text: str, ncols: int) -> None:
@@ -199,6 +225,8 @@ def load_payload(path: str) -> list:
         missing = required - set(entry)
         if missing:
             fail(2, f"payload entry for {entry.get('sheet', '?')!r} missing {sorted(missing)}")
+        if entry["sheet"] in (MANIFEST_SHEET, LEGACY_MANIFEST_SHEET):
+            fail(2, f"{entry['sheet']!r} is reserved for the manifest — name the data sheet something else")
     return entries
 
 
@@ -215,9 +243,10 @@ def cmd_create(args) -> None:
     except FileNotFoundError:
         wb = Workbook()
         wb.remove(wb.active)
-    if MANIFEST_SHEET not in wb.sheetnames:
+    if MANIFEST_SHEET not in wb.sheetnames and LEGACY_MANIFEST_SHEET not in wb.sheetnames:
         style_manifest(wb.create_sheet(MANIFEST_SHEET, 0))
     manifest_ws, _ = read_manifest(wb)
+    adopt_legacy_manifest(manifest_ws)
     summaries = []
     for entry in entries:
         if "csvPath" not in entry:
@@ -232,6 +261,7 @@ def cmd_refresh(args) -> None:
     entries = load_payload(args.payload)
     wb = load_workbook(args.workbook)
     manifest_ws, manifest_rows = read_manifest(wb)
+    adopt_legacy_manifest(manifest_ws)
     known = {row["sheet"] for row in manifest_rows}
     wanted = {e["sheet"] for e in entries} if args.all or not args.sheets else set(args.sheets.split(","))
     unknown = wanted - known
