@@ -24,8 +24,8 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
   presentation), `dashboard` (build a page of widgets over the org's saved
   queries, at a URL anyone in the org can open), `uploads` (shape a
   human-formatted spreadsheet into an uploaded table and prove the parse ties
-  out), `excel` (Dough-managed Excel workbooks: a visible `Dough`
-  manifest sheet maps data sheets to saved queries, so Claude can refresh them
+  out), `excel` (Dough-managed Excel workbooks: a visible `Dough Manifest`
+  sheet maps data sheets to saved queries, so Claude can refresh them
   without re-deriving anything — includes a bundled openpyxl script for
   deterministic workbook writes), `google-sheets` (the same manifest contract
   on a Google Sheet, written through the `gws` CLI — refresh clears managed

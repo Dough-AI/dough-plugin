@@ -209,11 +209,11 @@ def snapshot(spreadsheet: str) -> dict:
     """Everything the assertions read, taken once so a failing assertion does not
     re-hit the API and so turn 2's changes are compared against turn 1's state."""
     tab_list = tabs(spreadsheet)
-    man = manifest(spreadsheet) if any(t["title"] == "Dough" for t in tab_list) else {"marker": "", "headers": [], "rows": []}
+    man = manifest(spreadsheet) if any(t["title"] == "Dough Manifest" for t in tab_list) else {"marker": "", "headers": [], "rows": []}
     managed = {row["sheet"]: row for row in man["rows"]}
     data = {name: managed_tab_rows(spreadsheet, name) for name in managed if any(t["title"] == name for t in tab_list)}
     banners = {name: (values(spreadsheet, f"{quote_tab(name)}!A1") or [[""]])[0][0] for name in data}
-    others = [t["title"] for t in tab_list if t["title"] != "Dough" and t["title"] not in managed]
+    others = [t["title"] for t in tab_list if t["title"] != "Dough Manifest" and t["title"] not in managed]
     formulas = {name: sumifs_cells(spreadsheet, name) for name in others}
     summary = next((name for name, cells in formulas.items() if cells), None)
     computed = {}
@@ -234,7 +234,7 @@ def snapshot(spreadsheet: str) -> dict:
 
 
 def test_manifest_names_the_real_saved_queries(run):
-    """The `Dough` tab is the contract's whole point: a reader learns what
+    """The `Dough Manifest` tab is the contract's whole point: a reader learns what
     produced each tab from the spreadsheet itself, not from a chat log."""
     before = run["before"]
     assert before["manifest"]["marker"].startswith("dough-manifest v1"), before["manifest"]["marker"]
