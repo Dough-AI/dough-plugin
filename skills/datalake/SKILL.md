@@ -169,7 +169,7 @@ plan, an allocation key, a mapping someone keeps in a spreadsheet — load them:
 When no calculated table or saved query fits, `integrations.query` runs read-only
 SQL — a single `SELECT` or `WITH … SELECT` — so you can explore, join, and
 aggregate across mapped and base tables. Respect the guardrails: `limit` ≤ 5000,
-`timeoutMs` ≤ 15000, a 20 GiB billed ceiling, `@name` scalar params. Iterate here
+`timeoutMs` ≤ 60000 (default 5000; raise it for a large scan), a 50 GiB billed ceiling, `@name` scalar params. Iterate here
 until the result is right **before** you persist anything.
 
 ## 3. Enrich with a mapping (optional)
