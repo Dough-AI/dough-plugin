@@ -11,10 +11,24 @@ library only — no install, no virtualenv.
   dough_sheets.py create  <sheet> --payload payload.json
   dough_sheets.py create  --new "Title" [--folder <driveFolderId>] --payload payload.json
   dough_sheets.py refresh <sheet> --payload payload.json [--sheets A,B | --all]
+  dough_sheets.py put-tab <sheet> --tab "Name" --csv grid.csv [--start-row N] [--index N]
+  dough_sheets.py put-tab <sheet> --payload tabs.json
 
 <sheet> is a Google Sheets URL or a bare spreadsheet id. `create --new` makes
 the spreadsheet (in the given Drive folder, which must be one this app can see)
 and prints its URL on the first line of output.
+
+`put-tab` writes a CSV's values into an ordinary tab — one an agent or a person
+owns, not a managed data tab: no banner, no manifest row. The CSV is the grid
+as it should appear, row for row (blank lines are blank rows), starting at
+--start-row (default 1, so rows above it are left alone). The tab is created if
+it does not exist (at --index, when given), at least 1000 rows × 26 columns
+so formulas fit beside it. Several tabs go in one staging upload with
+--payload {"tabs": [{"tab", "csvPath", "startRow", "index"}]}. It is refused
+for the manifest tab and for any managed tab. Formulas are not written: values only. Write formulas
+afterwards with a direct `values update` (USER_ENTERED) — cells outside the
+pasted range are never touched, and rows below a shorter paste are cleared only
+in the columns the CSV covers.
 
 The payload JSON is assembled by the caller after running the saved query
 (queries.get + integrations.query) and writing the result to a local CSV:
@@ -691,6 +705,94 @@ def write_all(book: Spreadsheet, entries: list[dict], manifest_rows: list[dict])
 
 
 # ---------------------------------------------------------------------------
+# Plain tabs (put-tab)
+# ---------------------------------------------------------------------------
+BANNER_PREFIX = BANNER_TEMPLATE.split("{date}")[0].split(" · ")[0]
+
+
+def read_plain_grid(path: str) -> list[list]:
+    """The CSV as the grid it describes: every line a row, blank lines kept as
+    blank rows (a caller's layout uses them), trailing blank lines dropped.
+    Values typed as `create` types them."""
+    try:
+        text = Path(path).read_text(encoding="utf-8-sig")
+    except OSError as error:
+        fail(2, f"cannot read --csv {path}: {error}")
+    rows = [[coerce(v) for v in row] for row in csv.reader(text.splitlines())]
+    while rows and not any(v != "" for v in rows[-1]):
+        rows.pop()
+    if not rows:
+        fail(2, f"--csv {path} is empty")
+    if len(rows) > ROW_CAP:
+        fail(2, f"--csv {path}: {len(rows)} rows exceeds the {ROW_CAP} cap")
+    return rows
+
+
+def refuse_managed(book: Spreadsheet, title: str) -> None:
+    """put-tab must never become a way to write around the managed-tab contract."""
+    if title in (MANIFEST_SHEET, LEGACY_MANIFEST_SHEET):
+        fail(2, f"{title!r} is the manifest tab — put-tab writes ordinary tabs only")
+    if manifest_tab_name(book.tabs) is not None:
+        managed = {str(row["sheet"]) for row in read_manifest(book)}
+        if title in managed:
+            fail(2, f"{title!r} is a Dough-managed tab — refresh it from its saved query instead")
+    if title in book.tabs:
+        a1 = book.read(f"{quote_tab(title)}!A1")
+        if a1 and a1[0] and str(a1[0][0]).startswith(BANNER_PREFIX):
+            fail(2, f"{title!r} carries the managed-tab banner but is not in the manifest — "
+                    "that is drift; reconcile it before writing here")
+
+
+# A tab put-tab creates is at least Google's default size, so the caller can
+# write formulas beside and below the values it pasted.
+NEW_TAB_ROWS, NEW_TAB_COLS = 1000, 26
+
+
+def put_tabs(book: Spreadsheet, tabs: list[dict]) -> list[str]:
+    """Values into each `tabs[i]["tab"]` IN PLACE, through ONE staging upload.
+    A tab keeps its sheetId (so formulas that reference it survive), and nothing
+    outside its written rows × CSV columns changes, except stale values below a
+    shorter paste in those columns. Grids grow, never shrink: shrinking would
+    delete cells someone else put there."""
+    missing = [t for t in tabs if t["tab"] not in book.tabs]
+    if missing:
+        book.batch([{"addSheet": {"properties": {
+            "title": t["tab"],
+            **({"index": t["index"]} if t["index"] is not None else {}),
+            "gridProperties": {"rowCount": max(NEW_TAB_ROWS, t["startRow"] - 1 + len(t["grid"])),
+                               "columnCount": max(NEW_TAB_COLS, max(len(r) for r in t["grid"]))},
+        }}} for t in missing])
+        book.reload()
+    staging = Staging(book.gws, {f"g{i}": t["grid"] for i, t in enumerate(tabs, 1)})
+    summaries = []
+    try:
+        for i, t in enumerate(tabs, 1):
+            grid, row0 = t["grid"], t["startRow"] - 1
+            nrows, ncols = len(grid), max(len(r) for r in grid)
+            target = book.tabs[t["tab"]]
+            target_id = target["sheetId"]
+            have_rows = target["gridProperties"]["rowCount"]
+            have_cols = target["gridProperties"]["columnCount"]
+            copy = staging.copy_into(book, f"g{i}")
+            requests = []
+            if row0 + nrows > have_rows or ncols > have_cols:
+                requests.append(resize_request(target_id, max(have_rows, row0 + nrows), max(have_cols, ncols)))
+            requests.append(copy_paste_request(copy["sheetId"], nrows, ncols, target_id, row0))
+            if have_rows > row0 + nrows:
+                requests.append({"updateCells": {
+                    "range": {"sheetId": target_id, "startRowIndex": row0 + nrows, "endRowIndex": have_rows,
+                              "startColumnIndex": 0, "endColumnIndex": ncols},
+                    "fields": "userEnteredValue"}})
+            requests.append({"deleteSheet": {"sheetId": copy["sheetId"]}})
+            book.batch(requests)
+            summaries.append(f"{t['tab']}: {nrows} rows × {ncols} columns written to rows {row0 + 1}–{row0 + nrows}")
+    finally:
+        staging.close()
+    book.reload()
+    return summaries
+
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 def load_payload(path: str) -> list:
@@ -769,6 +871,47 @@ def cmd_refresh(args) -> None:
     print("\n".join(summaries) if summaries else "nothing to refresh")
 
 
+def put_tab_entries(args) -> list[dict]:
+    """--payload {"tabs": [{"tab", "csvPath", "startRow"?, "index"?}]}, or the
+    single-tab flags. Validated before anything touches Google."""
+    if bool(args.payload) == bool(args.tab):
+        fail(2, "put-tab takes either --payload or --tab with --csv, not both and not neither")
+    if args.payload:
+        try:
+            with open(args.payload, encoding="utf-8") as f:
+                raw = json.load(f).get("tabs")
+        except (OSError, json.JSONDecodeError, AttributeError) as error:
+            fail(2, f"cannot read payload {args.payload}: {error}")
+        if not isinstance(raw, list) or not raw:
+            fail(2, "payload must contain a non-empty 'tabs' list")
+    else:
+        if not args.csv:
+            fail(2, "--tab needs --csv")
+        raw = [{"tab": args.tab, "csvPath": args.csv, "startRow": args.start_row, "index": args.index}]
+    entries = []
+    for item in raw:
+        title = str(item.get("tab", "")).strip()
+        start_row, index = item.get("startRow", 1), item.get("index")
+        if not title or "csvPath" not in item:
+            fail(2, f"each tab needs a name and a csvPath: {item!r}")
+        if not isinstance(start_row, int) or start_row < 1:
+            fail(2, f"{title}: startRow is 1 or more")
+        if index is not None and (not isinstance(index, int) or index < 0):
+            fail(2, f"{title}: index is 0 or more")
+        entries.append({"tab": title, "grid": read_plain_grid(item["csvPath"]), "startRow": start_row, "index": index})
+    if len({e["tab"] for e in entries}) != len(entries):
+        fail(2, "put-tab names the same tab twice")
+    return entries
+
+
+def cmd_put_tab(args) -> None:
+    entries = put_tab_entries(args)
+    book = Spreadsheet(Gws(), spreadsheet_id(args.sheet))
+    for entry in entries:
+        refuse_managed(book, entry["tab"])
+    print("\n".join(put_tabs(book, entries)))
+
+
 def main() -> None:
     # The banner carries a non-ASCII character; a Windows console defaulting to
     # cp1252 would otherwise crash on printing a summary line.
@@ -793,6 +936,14 @@ def main() -> None:
             p.add_argument("--sheets", default="")
             p.add_argument("--all", action="store_true")
         p.set_defaults(handler=handler)
+    p = sub.add_parser("put-tab", help="write a CSV's values into an ordinary (non-managed) tab")
+    p.add_argument("sheet", help="Google Sheets URL or spreadsheet id")
+    p.add_argument("--payload", help='several tabs, one upload: {"tabs": [{"tab", "csvPath", "startRow", "index"}]}')
+    p.add_argument("--tab", help="the tab to write; created if missing")
+    p.add_argument("--csv", help="the grid, row for row")
+    p.add_argument("--start-row", type=int, default=1, help="first row written (default 1)")
+    p.add_argument("--index", type=int, default=None, help="position for a tab this creates (0 = first)")
+    p.set_defaults(handler=cmd_put_tab)
     args = parser.parse_args()
     args.handler(args)
 
