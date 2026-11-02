@@ -291,3 +291,88 @@ def test_refresh_renames_a_legacy_manifest_tab_in_place(tmp_path, sheet):
     assert after["sheetId"] == before["sheetId"]
     assert after.get("index", 0) == before.get("index", 0)
     assert manifest(sheet)["rows"][0]["last_refreshed"] == "2026-08-01T09:00:00Z"
+
+
+# --- put-tab: ordinary tabs, values through staging ----------------------------
+
+def grid_csv(tmp_path, name, rows):
+    p = tmp_path / f"{name}.csv"
+    import csv as _csv
+    with p.open("w", newline="", encoding="utf-8") as handle:
+        _csv.writer(handle).writerows(rows)
+    return str(p)
+
+
+def test_put_tab_writes_a_plain_tab_with_no_manifest_row(tmp_path, sheet):
+    run("create", url_of(sheet), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    rows = [["Item ID", "Amount", "Code"], ["stale:1", "12.50", "0100"], [], ["Total", "12.5", ""]]
+    result = run("put-tab", url_of(sheet), "--tab", "Actions", "--csv", grid_csv(tmp_path, "a", rows),
+                 "--start-row", "3", "--index", "0")
+    assert result.returncode == 0, result.stderr
+    assert [t["title"] for t in tabs(sheet)][0] == "Actions"
+    data = grid(sheet, "Actions")
+    assert data[:2] == [] or all(not r for r in data[:2]), "rows above --start-row stay empty"
+    assert data[2] == ["Item ID", "Amount", "Code"]
+    assert data[3] == ["stale:1", 12.5, "0100"]
+    assert not data[4]
+    assert data[5][:2] == ["Total", 12.5]
+    assert [r["sheet"] for r in manifest(sheet)["rows"]] == ["Revenue Detail"], "put-tab adds no manifest row"
+    assert not any(t["title"].startswith("Copy of") for t in tabs(sheet)), "staging tab left behind"
+
+
+def test_put_tab_rewrite_keeps_sheet_id_formulas_and_clears_stale_rows(tmp_path, sheet):
+    """The agent's pattern: values through put-tab, formulas written after it by
+    direct calls, then a rerun puts fewer rows. Formulas on the tab outside the
+    CSV's columns, and on other tabs pointing at it, must survive."""
+    first = [["id", "amount", "flag"]] + [[f"r{i}", str(i), "stale flag"] for i in range(1, 6)]
+    assert run("put-tab", url_of(sheet), "--tab", "JEs", "--csv", grid_csv(tmp_path, "j1", first)).returncode == 0
+    id_before = tab(sheet, "JEs")["sheetId"]
+    write_values(sheet, "JEs!D1", [["=SUM(B:B)"]])
+    add_tab(sheet, "Summary")
+    write_values(sheet, "Summary!A1", [["=SUM(JEs!B:B)"]])
+    assert values(sheet, "Summary!A1") == [[15]]
+
+    second = [["id", "amount", "flag"], ["r1", "100", ""], ["r2", "200", "kept"]]
+    result = run("put-tab", url_of(sheet), "--tab", "JEs", "--csv", grid_csv(tmp_path, "j2", second))
+    assert result.returncode == 0, result.stderr
+    assert tab(sheet, "JEs")["sheetId"] == id_before
+    data = values(sheet, "JEs!A1:C")
+    assert data == [["id", "amount", "flag"], ["r1", 100], ["r2", 200, "kept"]], (
+        "a blank cell in the CSV must clear the old value, and stale rows below the paste must go")
+    assert values(sheet, "JEs!D1") == [[300]], "a formula outside the CSV's columns survives"
+    assert values(sheet, "Summary!A1") == [[300]], "a formula on another tab still points at it"
+
+
+def test_put_tab_refuses_managed_tabs(tmp_path, sheet):
+    run("create", url_of(sheet), "--payload", payload(tmp_path, [entry(tmp_path)]))
+    path = grid_csv(tmp_path, "x", [["a"]])
+    for name in ("Revenue Detail", "Dough Manifest"):
+        result = run("put-tab", url_of(sheet), "--tab", name, "--csv", path)
+        assert result.returncode == 2, (name, result.stderr)
+    assert "Managed by Dough" in grid(sheet, "Revenue Detail")[0][0], "the managed tab is untouched"
+
+
+def test_put_tab_big_text_lands_whole(tmp_path, sheet):
+    """The reason put-tab exists: long text, far past the command-line limit."""
+    n = 400
+    rows = [["Item ID", "Evidence"]] + [[f"stale:{i}", f"evidence {i} " + "x" * 300] for i in range(n)]
+    result = run("put-tab", url_of(sheet), "--tab", "Actions", "--csv", grid_csv(tmp_path, "big", rows))
+    assert result.returncode == 0, result.stderr
+    data = values(sheet, "Actions!A1:B")
+    assert len(data) == n + 1
+    assert data[-1] == [f"stale:{n - 1}", f"evidence {n - 1} " + "x" * 300]
+
+
+def test_put_tab_payload_writes_several_tabs_in_order(tmp_path, sheet):
+    spec = {"tabs": [
+        {"tab": "Summary", "csvPath": grid_csv(tmp_path, "s", [["Week", "2026-W44"]]), "startRow": 3, "index": 0},
+        {"tab": "Actions", "csvPath": grid_csv(tmp_path, "a", [["Item ID"], ["stale:1"]]), "startRow": 3, "index": 1},
+    ]}
+    p = tmp_path / "tabs.json"
+    p.write_text(json.dumps(spec), encoding="utf-8")
+    result = run("put-tab", url_of(sheet), "--payload", str(p))
+    assert result.returncode == 0, result.stderr
+    assert [t["title"] for t in tabs(sheet)][:2] == ["Summary", "Actions"]
+    assert values(sheet, "Summary!A3:B3") == [["Week", "2026-W44"]]
+    assert values(sheet, "Actions!A3:A4") == [["Item ID"], ["stale:1"]]
+    assert not any(t["title"].startswith("Copy of") for t in tabs(sheet))
