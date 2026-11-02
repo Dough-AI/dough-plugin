@@ -185,6 +185,17 @@ def test_paging_guidance_matches_excel():
 
 
 def test_skill_stays_readable():
-    """Loaded on every spreadsheet task; the excel skill is ~1200 words."""
+    """Loaded on every spreadsheet task; the excel skill is ~1200 words. Raised
+    from 1600 in 0.32.0 for the plain-tabs section (`put-tab`): it stops an agent
+    chunking a long tab through hundreds of `values update` calls."""
     words = len(SKILL.read_text(encoding="utf-8").split())
-    assert words < 1600, words
+    assert words < 1700, words
+
+
+def test_skill_routes_bulk_values_on_plain_tabs_to_put_tab():
+    """An agent writing a long findings tab would otherwise chunk it through
+    `values update` — hundreds of calls, each a kill risk on a managed Mac."""
+    text = flat(SKILL)
+    assert near(text, "## Plain tabs", "never chunk", "put-tab", "staging upload", window=500)
+    assert near(text, "no banner and no manifest row", "refresh cannot rebuild it", window=200)
+    assert near(text, "refuses managed tabs", "values only", window=200)

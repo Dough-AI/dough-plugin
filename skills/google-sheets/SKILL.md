@@ -155,6 +155,15 @@ Keep each call's body small — a few dozen cells per call, well under 900
 characters — for the reason above. A summary tab is a handful of such calls.
 Add the tab first with a `batchUpdate` `addSheet` request if it does not exist.
 
+## Plain tabs: many values, no manifest
+
+For bulk VALUES on an ordinary tab (an agent's findings, long text), never chunk
+them through `values update`: write a CSV and run `dough_sheets.py put-tab
+<url-or-id> --tab "Actions" --csv actions.csv`, which uses the staging upload.
+A plain tab gets no banner and no manifest row: refresh cannot rebuild it.
+`put-tab` refuses managed tabs and the manifest, and writes values only — add
+formulas afterwards as above. `--help` has the rest.
+
 ## Grain selection & aggregation
 
 - Pull the LOWEST GRAIN the analysis needs into the managed tab and aggregate
