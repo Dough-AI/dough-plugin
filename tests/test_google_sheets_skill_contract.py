@@ -164,7 +164,10 @@ def test_skill_teaches_formula_tabs_with_user_entered_and_small_bodies():
     text = flat(SKILL)
     assert "USER_ENTERED" in text
     assert near(text, "USER_ENTERED", "SUMIFS", window=600)
-    assert near(text, "Keep each call's body small", "900", window=200)
+    # The limit is the script's, not a number the model remembers: 800 on a
+    # managed Mac, far larger on the Linux box a hosted agent runs on.
+    assert near(text, "Keep each call's body under", "arg-budget", window=200)
+    assert near(text, "arg-budget", "800", "Linux", window=200)
 
 
 def test_skill_records_parameters_in_refresh_notes():

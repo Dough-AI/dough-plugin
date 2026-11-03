@@ -151,8 +151,8 @@ gws sheets spreadsheets values update \
   --json '{"values":[["Mapping","Apr","May"],["Revenue","=SUMIFS('MoM by Account'!E:E,'MoM by Account'!C:C,A2)", …]]}'
 ```
 
-Keep each call's body small — a few dozen cells per call, well under 900
-characters — for the reason above. A summary tab is a handful of such calls.
+Keep each call's body under what `dough_sheets.py arg-budget` prints (800
+characters on Mac and Windows, for the reason above; far more on Linux).
 Add the tab first with a `batchUpdate` `addSheet` request if it does not exist.
 
 ## Plain tabs: many values, no manifest

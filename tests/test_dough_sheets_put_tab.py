@@ -238,13 +238,13 @@ def test_paste_comes_before_the_staging_tab_is_deleted(staged):
 
 def test_every_request_body_fits_the_command_line(staged):
     """Cell contents travel through staging; what goes on the command line is
-    structure only, and Gws.call refuses anything over ARG_BUDGET."""
+    structure only, and Gws.call refuses anything over the arg budget."""
     gws, book = book_with(("Actions", 7, [], 10, 2))
     long_text = "evidence " * 400
     put(book, "Actions", [[long_text, long_text]] * 300, start_row=2, index=None)
     for call_args, body, _ in gws.calls:
         if body is not None:
-            assert len(json.dumps(body, separators=(",", ":"))) <= ds.ARG_BUDGET, call_args
+            assert len(json.dumps(body, separators=(",", ":"))) <= ds.arg_budget(), call_args
 
 
 def test_several_tabs_share_one_upload(staged):

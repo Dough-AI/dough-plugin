@@ -13,6 +13,7 @@ library only — no install, no virtualenv.
   dough_sheets.py refresh <sheet> --payload payload.json [--sheets A,B | --all]
   dough_sheets.py put-tab <sheet> --tab "Name" --csv grid.csv [--start-row N] [--index N]
   dough_sheets.py put-tab <sheet> --payload tabs.json
+  dough_sheets.py arg-budget       (largest --json body to put on this machine's command line)
 
 <sheet> is a Google Sheets URL or a bare spreadsheet id. `create --new` makes
 the spreadsheet (in the given Drive folder, which must be one this app can see)
@@ -43,7 +44,8 @@ command line. The script builds a typed .xlsx, uploads it through Drive as a
 staging spreadsheet, copies each tab into the target, and pastes values into
 the managed tab IN PLACE — which also keeps the tab's sheetId, so formulas on
 other tabs that reference it keep working. Every request body the script does
-put on the command line stays under ARG_BUDGET.
+put on the command line stays under the arg budget (800 characters, more on
+Linux; see arg_budget), which `arg-budget` prints for callers' own requests.
 
 Exit codes: 0 success · 2 usage/validation error · 3 manifest drift or version
 mismatch · 4 gws failure (binary missing, not authorised, API error).
@@ -54,6 +56,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import io
 import json
 import os
 import re
@@ -106,7 +109,13 @@ NUMERIC_PATTERN = re.compile(r"-?(0|[1-9]\d{0,14})(\.\d+)?")
 # machine running an endpoint-security agent, gws is killed (SIGKILL, exit 137)
 # once a single argument passes ~910 characters. Bodies here are formatting
 # and structure requests; cell contents go through the staging upload instead.
+# That kill is an endpoint agent on managed Macs (and Windows caps the whole
+# command line at 32K); Linux, where hosted agents run, allows one argument of
+# 128 KiB, so it gets a far larger budget and a build makes a fraction of the
+# calls. DOUGH_GWS_ARG_BUDGET overrides both; `arg-budget` prints the one in force.
 ARG_BUDGET = 800
+LINUX_ARG_BUDGET = 100_000
+ARG_BUDGET_RANGE = (200, 120_000)
 MANIFEST_ROWS = 100  # initial grid height of the manifest tab; grown on demand
 RETRY_DELAYS = (1, 2, 4, 8, 16)
 SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet"
@@ -116,6 +125,16 @@ URL_PATTERN = re.compile(r"docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]+)")
 def fail(code: int, message: str) -> None:
     print(f"dough-sheets: {message}", file=sys.stderr)
     sys.exit(code)
+
+
+def arg_budget() -> int:
+    override = os.environ.get("DOUGH_GWS_ARG_BUDGET", "").strip()
+    if override:
+        low, high = ARG_BUDGET_RANGE
+        if not override.isdigit() or not low <= int(override) <= high:
+            fail(2, f"DOUGH_GWS_ARG_BUDGET={override} must be a whole number from {low} to {high}")
+        return int(override)
+    return LINUX_ARG_BUDGET if sys.platform.startswith("linux") else ARG_BUDGET
 
 
 def find_gws() -> str:
@@ -172,8 +191,8 @@ class Gws:
             argv += ["--params", json.dumps(params, separators=(",", ":"))]
         if body is not None:
             encoded = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            if len(encoded) > ARG_BUDGET:
-                fail(2, f"internal: request body for gws {' '.join(args)} is {len(encoded)} chars, over ARG_BUDGET")
+            if len(encoded) > arg_budget():
+                fail(2, f"internal: request body for gws {' '.join(args)} is {len(encoded)} chars, over the arg budget")
             argv += ["--json", encoded]
         if upload is not None:
             argv += ["--upload", upload]
@@ -266,7 +285,7 @@ class Spreadsheet:
         self.tabs = {s["properties"]["title"]: s["properties"] for s in body.get("sheets", [])}
 
     def batch(self, requests: list[dict]) -> list[dict]:
-        """batchUpdate, split into as many calls as ARG_BUDGET requires, in order.
+        """batchUpdate, split into as many calls as arg_budget() requires, in order.
 
         A Sheets batch is atomic; a split one is not. Requests are ordered so
         that a failure leaves the spreadsheet in a state the next run repairs
@@ -274,9 +293,10 @@ class Spreadsheet:
         """
         replies: list[dict] = []
         group: list[dict] = []
+        budget = arg_budget()
         for request in requests:
             candidate = group + [request]
-            if group and len(json.dumps({"requests": candidate}, separators=(",", ":"), ensure_ascii=False)) > ARG_BUDGET:
+            if group and len(json.dumps({"requests": candidate}, separators=(",", ":"), ensure_ascii=False)) > budget:
                 replies += self._batch(group)
                 group = []
             group.append(request)
@@ -637,12 +657,18 @@ def write_manifest_rows(book: Spreadsheet, staging: Staging, manifest_rows: list
 # ---------------------------------------------------------------------------
 # Data tabs
 # ---------------------------------------------------------------------------
+def parse_csv(text: str) -> list[list[str]]:
+    """Rows of a CSV, keeping line breaks inside quoted cells (as \\n). Parsing
+    text.splitlines() would drop them: the reader only sees line ends it is given."""
+    return [[cell.replace("\r\n", "\n") for cell in row] for row in csv.reader(io.StringIO(text, newline=""))]
+
+
 def read_csv_file(path: str, sheet: str):
     try:
         text = Path(path).read_text(encoding="utf-8-sig")
     except OSError as error:
         fail(2, f"{sheet}: cannot read csvPath {path}: {error}")
-    parsed = [row for row in csv.reader(text.splitlines()) if row]
+    parsed = [row for row in parse_csv(text) if row]
     if not parsed:
         fail(2, f"{sheet}: csvPath {path} is empty")
     return parsed[0], parsed[1:]
@@ -718,7 +744,7 @@ def read_plain_grid(path: str) -> list[list]:
         text = Path(path).read_text(encoding="utf-8-sig")
     except OSError as error:
         fail(2, f"cannot read --csv {path}: {error}")
-    rows = [[coerce(v) for v in row] for row in csv.reader(text.splitlines())]
+    rows = [[coerce(v) for v in row] for row in parse_csv(text)]
     while rows and not any(v != "" for v in rows[-1]):
         rows.pop()
     if not rows:
@@ -912,6 +938,10 @@ def cmd_put_tab(args) -> None:
     print("\n".join(put_tabs(book, entries)))
 
 
+def cmd_arg_budget(args) -> None:
+    print(arg_budget())
+
+
 def main() -> None:
     # The banner carries a non-ASCII character; a Windows console defaulting to
     # cp1252 would otherwise crash on printing a summary line.
@@ -944,6 +974,8 @@ def main() -> None:
     p.add_argument("--start-row", type=int, default=1, help="first row written (default 1)")
     p.add_argument("--index", type=int, default=None, help="position for a tab this creates (0 = first)")
     p.set_defaults(handler=cmd_put_tab)
+    p = sub.add_parser("arg-budget", help="print the largest --json body to put on this machine's command line")
+    p.set_defaults(handler=cmd_arg_budget)
     args = parser.parse_args()
     args.handler(args)
 
