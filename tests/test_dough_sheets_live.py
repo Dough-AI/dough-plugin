@@ -376,3 +376,10 @@ def test_put_tab_payload_writes_several_tabs_in_order(tmp_path, sheet):
     assert values(sheet, "Summary!A3:B3") == [["Week", "2026-W44"]]
     assert values(sheet, "Actions!A3:A4") == [["Item ID"], ["stale:1"]]
     assert not any(t["title"].startswith("Copy of") for t in tabs(sheet))
+
+
+def test_put_tab_keeps_line_breaks_inside_a_cell(tmp_path, sheet):
+    rows = [["Item", "Flags"], ["A", "duplicate\nstale"], ["B", "one"]]
+    result = run("put-tab", url_of(sheet), "--tab", "Flags", "--csv", grid_csv(tmp_path, "f", rows))
+    assert result.returncode == 0, result.stderr
+    assert grid(sheet, "Flags")[:3] == [["Item", "Flags"], ["A", "duplicate\nstale"], ["B", "one"]]
