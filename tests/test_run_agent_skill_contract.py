@@ -140,6 +140,56 @@ def test_never_runs_dough_agent_run_itself():
         ), f"unqualified `dough agent run` near: {chunk[:160]!r}"
 
 
+
+def test_terminal_cli_has_no_directory_change_tool_and_that_is_expected():
+    # Without this, a terminal-CLI user gets a fetched agent and a stop nobody
+    # warned them about, and the model reads its own correct stop as a failure.
+    body = flat(SKILL)
+    assert near(body, "terminal CLI does not", "stops at step 2", "expected result, not a fault"), (
+        "the skill must say the terminal CLI cannot move the session and that stopping is correct"
+    )
+    assert near(body, "Always look for the tool", "rather than guessing"), (
+        "the surface is a hint, not a test: the model must still search for the tool"
+    )
+
+
+def test_stop_names_a_separate_terminal_exit_and_the_command():
+    # "Run it from a terminal" is ambiguous when the user is already in one: they
+    # need a terminal that is NOT this session, either a new one or this one after
+    # leaving Claude.
+    body = flat(SKILL)
+    assert near(body, "If there is no such tool, STOP.", "agent is fetched", "give its path"), (
+        "the stop must tell the user the fetch worked and where the agent is"
+    )
+    assert near(body, "If there is no such tool, STOP.", "separate terminal", "`/exit`",
+                "`dough agent run <name>` from a terminal"), (
+        "the stop must name both ways out of this session and the command to run there"
+    )
+
+
+def test_bang_is_named_with_the_reason_it_is_refused():
+    # `!` looks like "run it in a terminal" but runs inside this session, where
+    # `dough agent run` refuses. This is about the refusal, not credentials.
+    body = flat(SKILL)
+    assert near(body, "not to type it with `!`", "runs inside this session", "refused",
+                window=150), (
+        "warning against `!` without saying why reads as arbitrary"
+    )
+    assert near(body, "user typing it with `!`", "also runs inside this session", window=150), (
+        "the never-run section must cover the user's `!` as well as the model's call"
+    )
+
+
+def test_enter_worktree_is_ruled_out_with_its_reason():
+    # It is the tool a terminal-CLI model finds when it searches for a directory
+    # change, and it fails on an agent folder.
+    body = flat(SKILL)
+    assert near(body, "`EnterWorktree` does not count", "only enters git worktrees",
+                "agent folder is not one", window=200), (
+        "EnterWorktree must be ruled out together with why it cannot work here"
+    )
+
+
 def test_credential_values_are_never_printed():
     body = flat(SKILL)
     assert near(body, "Never print", "credential", window=200)
