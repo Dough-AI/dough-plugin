@@ -140,13 +140,17 @@ def test_never_runs_dough_agent_run_itself():
         ), f"unqualified `dough agent run` near: {chunk[:160]!r}"
 
 
-
 def test_terminal_cli_has_no_directory_change_tool_and_that_is_expected():
     # Without this, a terminal-CLI user gets a fetched agent and a stop nobody
     # warned them about, and the model reads its own correct stop as a failure.
     body = flat(SKILL)
-    assert near(body, "terminal CLI does not", "stops at step 2", "expected result, not a fault"), (
-        "the skill must say the terminal CLI cannot move the session and that stopping is correct"
+    assert near(body, "Moving the session needs a directory-change tool", "terminal CLI does not",
+                "stops at step 2", "expected result, not a fault"), (
+        "the skill must say the terminal CLI cannot move the session, why, and that stopping is correct"
+    )
+    desc = re.search(r"^description: (.+)$", SKILL.read_text(encoding="utf-8"), re.M)
+    assert desc and "in the terminal cli, it fetches the agent" in desc.group(1).lower(), (
+        "the description must set the terminal-CLI expectation before the skill runs"
     )
     assert near(body, "Always look for the tool", "rather than guessing"), (
         "the surface is a hint, not a test: the model must still search for the tool"
@@ -175,9 +179,15 @@ def test_bang_is_named_with_the_reason_it_is_refused():
                 window=150), (
         "warning against `!` without saying why reads as arbitrary"
     )
-    assert near(body, "user typing it with `!`", "also runs inside this session", window=150), (
+    assert near(body, "never something you run yourself.", "user typing it with `!`",
+                "also runs inside this session", window=150), (
         "the never-run section must cover the user's `!` as well as the model's call"
     )
+    for match in re.finditer(re.escape("`!`"), body):
+        chunk = body[max(0, match.start() - 150) : match.start() + 150].lower()
+        assert "credential" not in chunk, (
+            "the `!` warning is about the refusal; the old credentials caveat stays removed"
+        )
 
 
 def test_enter_worktree_is_ruled_out_with_its_reason():

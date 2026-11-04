@@ -34,7 +34,9 @@ On first use, Claude Code will prompt you to sign in to Dough (OAuth). Then run
   accounting system for human approval instead of performing it), and
   `run-agent` (open a published Dough agent inside the current session, so its
   own instructions and skills take over without leaving Claude; its scripts fetch
-  their own credentials, so nothing lands in the session environment).
+  their own credentials, so nothing lands in the session environment). That works
+  in the desktop app; in the terminal CLI it fetches the agent and says how to
+  open it.
 - **Commands:** `/dough:status`, and `/dough:propose` — raises a write for
   approval with the session transcript and the files behind it attached, so an
   approver can see what the numbers came from. Evidence is hashed locally and
