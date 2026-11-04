@@ -1,6 +1,6 @@
 ---
 name: run-agent
-description: Open a Dough agent inside this session. Use when asked to run, use, start, or switch to a Dough agent by name — for example "run the campfire agent" or "use rental-agent-demo".
+description: Open a Dough agent inside this session. Use when asked to run, use, start, or switch to a Dough agent by name — for example "run the campfire agent" or "use rental-agent-demo". In the terminal CLI, it fetches the agent and tells the user how to open it.
 ---
 
 # Run a Dough agent in this session
@@ -12,6 +12,13 @@ session with `--add-dir` registers the skills but does not load `CLAUDE.md`,
 which is not the same thing and fails silently.
 
 So this skill does one thing: it fetches the agent and moves the session into it.
+
+## Where this works
+
+Moving the session needs a directory-change tool. The Claude desktop app has one. The
+terminal CLI does not, so there the skill fetches the agent and stops at step 2. That is
+the expected result, not a fault. Always look for the tool rather than guessing from
+the surface.
 
 ## Steps
 
@@ -29,9 +36,13 @@ So this skill does one thing: it fetches the agent and moves the session into it
    **search for it and load it now** — you will not reach for a tool you cannot
    see.
 
-   **If there is no such tool, STOP.** Tell the user to run
-   `dough agent run <name>` from a terminal instead. Do not improvise a
-   substitute; see step 4.
+   `EnterWorktree` does not count: it only enters git worktrees, and an agent folder is
+   not one.
+
+   **If there is no such tool, STOP.** Tell the user the agent is fetched and give its
+   path. Tell them to open a separate terminal, or leave this session with `/exit`, and
+   run `dough agent run <name>` from a terminal there. Tell them not to type it with `!`:
+   that runs inside this session and is refused. Do not improvise a substitute; see step 4.
 
 3. **Change the session directory** to the absolute path from step 1.
 
@@ -90,4 +101,5 @@ the answer, not a symptom.
 That command launches a *new* Claude Code session, and it refuses to start when
 it detects it is already running inside one. It is the terminal entry point, and
 it is what you tell the user to run when this skill cannot finish — never
-something you run yourself.
+something you run yourself. The same goes for the user typing it with `!`, which
+also runs inside this session.
