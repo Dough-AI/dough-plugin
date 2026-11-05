@@ -70,8 +70,9 @@ the surface.
 
 6. **If the user's next message asks for specific work, do that.** If it does not,
    say in under 150 words what the agent does and what you would need from them to
-   run it. Read files in its folder if you need to, including `contract.yaml` if
-   there is one, but do not use Bash, run anything or change anything. Then wait
+   run it. For that reply, read only `agent.yaml`, `README.md` and `contract.yaml`
+   from its folder, if they exist, because session transcripts can be uploaded with
+   what was read. Use no other tools, and do not run or change anything. Then wait
    for them to say what to do. Do not start the work unprompted: nobody has said
    which period or which files yet.
 

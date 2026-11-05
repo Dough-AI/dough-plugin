@@ -208,8 +208,12 @@ def test_new_session_describes_the_agent_and_waits():
                 "what you would need from them"), (
         "with no specific request, the agent must say what it does and what it needs"
     )
-    assert near(body, "`contract.yaml`", "do not use Bash", "run anything", "change anything",
-                "Do not start the work unprompted", "which period or which files", window=300), (
+    assert near(body, "For that reply, read only `agent.yaml`, `README.md` and `contract.yaml`",
+                "transcripts can be uploaded", "Use no other tools", "do not run or change anything",
+                window=300), (
+        "reads must be limited with the reason: a free read could upload a customer file"
+    )
+    assert near(body, "Do not start the work unprompted", "which period or which files", window=120), (
         "the description must not start the work, and must say why"
     )
     assert re.search(r"^7\. \*\*From then on, follow the agent's own", SKILL.read_text(encoding="utf-8"), re.M), (
