@@ -200,6 +200,27 @@ def test_enter_worktree_is_ruled_out_with_its_reason():
     )
 
 
+def test_new_session_describes_the_agent_and_waits():
+    # Same behaviour as `dough agent run`'s opener in Dough-Alpha. It must not
+    # start: unlike a hosted run, nobody has fixed a period or inputs yet.
+    body = flat(SKILL)
+    assert near(body, "asks for specific work, do that", "under 150 words",
+                "what you would need from them"), (
+        "with no specific request, the agent must say what it does and what it needs"
+    )
+    assert near(body, "For that reply, read only `agent.yaml`, `README.md` and `contract.yaml`",
+                "transcripts can be uploaded", "Use no other tools", "do not run or change anything",
+                window=300), (
+        "reads must be limited with the reason: a free read could upload a customer file"
+    )
+    assert near(body, "Do not start the work unprompted", "which period or which files", window=120), (
+        "the description must not start the work, and must say why"
+    )
+    assert re.search(r"^7\. \*\*From then on, follow the agent's own", SKILL.read_text(encoding="utf-8"), re.M), (
+        "the steps must stay in order: describe first, then follow the agent"
+    )
+
+
 def test_credential_values_are_never_printed():
     body = flat(SKILL)
     assert near(body, "Never print", "credential", window=200)
