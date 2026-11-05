@@ -68,7 +68,14 @@ the surface.
    Do not check for credentials as part of this. They are not in the session by
    design, so their absence tells you nothing about whether the move worked.
 
-6. **From then on, follow the agent's own `CLAUDE.md`.** You are the agent now;
+6. **If the user's next message asks for specific work, do that.** If it does not,
+   say in under 150 words what the agent does and what you would need from them to
+   run it. Read files in its folder if you need to, including `contract.yaml` if
+   there is one, but do not use Bash, run anything or change anything. Then wait
+   for them to say what to do. Do not start the work unprompted: nobody has said
+   which period or which files yet.
+
+7. **From then on, follow the agent's own `CLAUDE.md`.** You are the agent now;
    this skill's job is finished.
 
 ## Credentials
