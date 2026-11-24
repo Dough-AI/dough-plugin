@@ -85,8 +85,25 @@ something the server will reject anyway. Send the proposal and read the answer.
 ### Never say it has been posted
 A proposal that comes back `approved` has **not** been written to the books.
 Approval and posting are separate: posting runs in the background afterwards.
-Relay the `status` and `waitingOn` the response gives you, and say plainly that
-nothing has been written yet.
+
+**Most gateways need a person.** Relay the `status` and `waitingOn` the response
+gives you, and say plainly that nothing has been written yet.
+
+**Some gateways need no approval and post on their own, within seconds.** The
+response says so with `postsAutomatically: true`. For those, do not relay
+"queued" and do not say it posted. Call `proposals.get` with the returned
+reference once, straight away, and tell the user the status it returns:
+
+- `posted`: say it has been written, and give the record it created.
+- `failed`: say it failed and why, and that a failed proposal cannot be retried.
+- still `approved` or `posting`: say it is still posting, give the reference,
+  and say where to track it. Do not read it again in a loop.
+
+Do not offer to check later. Check, then report.
+Never tell the user it posted unless the status is `posted`.
+
+If the response has no `postsAutomatically` field, treat it as a gateway that
+needs a person.
 
 ## Raising one
 

@@ -265,6 +265,60 @@ def propose_description():
     return re.sub(r"\s+", " ", match.group(1)).strip()
 
 
+def posting_section():
+    """The body under "### Never say it has been posted", up to the next heading."""
+    text = PROPOSE.read_text(encoding="utf-8")
+    match = re.search(
+        r"^### Never say it has been posted\n(.*?)^## ", text, re.MULTILINE | re.DOTALL
+    )
+    assert match, 'propose/SKILL.md has no "Never say it has been posted" section'
+    return match.group(1)
+
+
+def test_a_proposal_that_posts_on_its_own_is_checked_before_it_is_reported():
+    """A gateway that needs no approval posts within seconds of the proposal.
+
+    The skill used to say, for every `approved` proposal, "say plainly that
+    nothing has been written yet". On such a gateway that sentence is stale
+    before the user reads it: they are told "queued, not yet written" about a
+    write that already landed. The agent has to read the status and report that.
+
+    Keyed on the response FIELD, not on a server sentence, so the server can
+    reword its prose without this guidance going quiet.
+    """
+    section = posting_section()
+    assert "postsAutomatically" in section, (
+        "the skill does not name the field that says a proposal posts on its own"
+    )
+    assert "proposals.get" in section, (
+        "the skill does not say how to find out what became of the proposal"
+    )
+
+
+def test_the_agent_checks_instead_of_offering_to_check():
+    """ "I can check in a minute if you want" is how the user ends up holding a
+    stale answer: the offer replaces the one read that would have settled it."""
+    assert "Do not offer to check later." in posting_section()
+
+
+def test_posted_is_only_ever_said_from_the_status():
+    """Reading the status once does not license "it posted": the read can come
+    back still posting, or failed. Only `posted` means the write landed."""
+    section = posting_section()
+    assert "Never tell the user it posted unless the status is `posted`." in section
+    assert "Do not read it again in a loop." in section
+
+
+def test_every_other_proposal_keeps_the_old_rule():
+    """The new case must not loosen the old one. A proposal a person approved is
+    still not written when it comes back `approved`, and a server that does not
+    send the field at all must be treated the same way."""
+    section = posting_section()
+    assert "has **not** been written to the books" in section
+    assert "nothing has been written yet" in section
+    assert "no `postsAutomatically` field" in section
+
+
 def test_the_trigger_is_not_scoped_to_one_product():
     """The failure this guards is silent and total.
 
